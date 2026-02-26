@@ -1,0 +1,5 @@
+{
+  "name": "Guide Engine",
+  "description": "A documentation-driven app builder that converts system specifications into structured build plans and executable prompts.",
+  "requestFramePermissions": []
+}
