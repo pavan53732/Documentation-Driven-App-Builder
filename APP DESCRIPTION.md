@@ -115,6 +115,100 @@ The engine uses a sophisticated set of semantic tokens and patterns to extract s
   - `Trigger: [event], Steps: [list of actions]`
   - `Upon [interaction], [immediate feedback] followed by [state update]`
   - `First [action], then [action], finally [outcome]`
+### The 45-Rule Architectural Index
+The following table represents every deterministic heuristic enforced by the engine:
+
+| Rule ID | Category | Core Heuristic Requirement |
+|:---|:---|:---|
+| `rule-icon-nav-item` | UI/Icons | Every navigation/sidebar item must have a scannable icon. |
+| `rule-icon-standard` | UI/Icons | Standard actions (Save/Delete/Edit) must use library-consistent icons. |
+| `rule-tooltip-icon` | UI/UX | Icon-only buttons must present a descriptive tooltip on hover. |
+| `rule-favicon-check` | UI/Global | Global branding must include a web-standard favicon. |
+| `rule-confirm-destr` | UI/Feedback | Destructive actions require a modal confirmation interrupt. |
+| `rule-feedback-toast`| UI/Feedback | Async submissions must provide success/failure toast feedback. |
+| `rule-loading-btn` | UI/Feedback | Async buttons must enter a disabled `loading` state during execution. |
+| `rule-undo-cap` | UI/UX | Data-modifying actions should support a "revert/undo" mechanism. |
+| `rule-loading-state`| UI/Loading | Data grids and lists require skeleton screens for perceived speed. |
+| `rule-empty-state` | UI/Feedback | Lists must have an illustration/message for empty data scenarios. |
+| `rule-logging-auth` | Logic/Log | Authentication events (success/fail) must be audit-logged. |
+| `rule-error-report` | Logic/Mon | Critical API failures must be reported to a monitoring service (Sentry). |
+| `rule-performance-m`| Logic/Mon | Core Web Vitals (LCP/FID/CLS) must be tracked globally. |
+| `rule-a11y-labels` | A11y | All form inputs require explicit labels or aria-label attributes. |
+| `rule-a11y-alt` | A11y | All visual media/images must provide descriptive alt text. |
+| `rule-a11y-skip` | A11y | Keyboard users must have a "Skip to Content" hidden link. |
+| `rule-a11y-heading` | A11y | Pages must maintain a logical H1 -> H2 semantic hierarchy. |
+| `rule-a11y-motion` | A11y | Animations must respect `prefers-reduced-motion` settings. |
+| `rule-seo-meta` | SEO | Every page must provide unique meta titles and descriptions. |
+| `rule-seo-og` | SEO | Social previews must include Open Graph tags (og:title/og:image). |
+| `rule-seo-sitemap` | SEO | System must generate a crawlable `sitemap.xml`. |
+| `rule-seo-canon` | SEO | Duplicate content avoidance via `<link rel='canonical'>`. |
+| `rule-api-valid` | Logic/Sec | Server-side schema validation (Zod/Joi) for all write routes. |
+| `rule-api-rate` | Logic/Sec | Rate limiting must be implemented to prevent API abuse. |
+| `rule-api-auth` | Logic/Sec | Permission/Role checks (RBAC) required on every request. |
+| `rule-api-cors` | Logic/Sec | CORS must be configured with a strict whitelist of trusted origins. |
+| `rule-db-soft-del` | DevOps | Critical entities should use `deleted_at` instead of hard deletion. |
+| `rule-db-indexes` | DevOps | Indexes required for all high-cardinality search columns. |
+| `rule-db-timestamp` | DevOps | Every table must include `created_at` and `updated_at` fields. |
+| `rule-db-migration` | DevOps | Schema updates must be managed via versioned migration scripts. |
+| `rule-dev-health` | DevOps | Services must expose a `/health` endpoint for orchestration. |
+| `rule-dev-env` | DevOps | A `.env.example` must exist documenting all required secrets. |
+| `rule-dev-graceful` | DevOps | POSIX signal handling (SIGTERM) for clean connection closure. |
+| `rule-test-unit` | Testing | 100% coverage required for critical business logic modules. |
+| `rule-test-e2e` | Testing | Playwright/Cypress tests required for sensitive user journeys. |
+| `rule-sec-password` | Logic/Sec | Passwords must be hashed via Bcrypt/Argon2 (never plain text). |
+| `rule-perf-lazy` | UI/UX | Heavy routes and components must use React.lazy/Suspense. |
+| `rule-dev-docker` | DevOps | Multi-stage Dockerfile required for portable deployments. |
+| `rule-dev-ci-cd` | DevOps | Automated pipeline (GitHub Actions) for build and test. |
+| `rule-sec-sqli` | Logic/Sec | Parameterized queries or secure ORMs required to block SQLi. |
+| `rule-sec-jwt` | Logic/Sec | Secrets must be managed via Vault/Env (never hardcoded). |
+| `rule-ux-inline` | UI/UX | Real-time field validation feedback while user is typing. |
+| `rule-sec-rate` | Logic/Sec | Global rate limiting for brute-force/DoS protection. |
+| `rule-sec-headers` | Logic/Sec | Implementation of CSP, HSTS, and X-Content-Type headers. |
+| `rule-logic-idemp` | Logic | POST/PUT operations must be idempotent for payment/orders. |
+
+---
+
+### Intelligent Icon Assignment (`ICON_MAP`)
+The engine uses a semantic lookup table of 82 specific keywords to pick the most appropriate Lucide icon automatically:
+
+| Action/Entity Keywords | Assigned Lucide Icon |
+|:---|:---|
+| `save` | `Save` |
+| `delete`, `remove`, `trash` | `Trash2` |
+| `edit`, `pencil` | `Pencil` |
+| `add`, `plus`, `create` | `Plus` |
+| `search`, `find` | `Search` |
+| `filter`, `sort` | `Filter` |
+| `refresh`, `sync` | `Refresh` |
+| `home`, `dashboard` | `Home` / `LayoutDashboard` |
+| `profile`, `user`, `account`| `User` |
+| `settings`, `config` | `Settings` |
+| `close`, `cancel`, `x` | `X` |
+| `home`, `dashboard` | `Home` |
+| `mail`, `send`, `email` | `Mail` / `Send` |
+| `download`, `export` | `Download` |
+| `upload`, `import` | `Upload` |
+| `login`, `signup`, `auth` | `LogIn` |
+| `logout`, `signout` | `LogOut` |
+| `list`, `table`, `grid` | `List` / `Table` |
+| `calendar`, `date`, `time` | `Calendar` |
+| `error`, `alert`, `warn` | `AlertCircle` / `AlertTriangle` |
+| `success`, `check` | `CheckCircle2` |
+
+---
+
+### AI Extraction Missions
+The `analyzeDocumentation` service executes 9 specific missions to ensure a complete technical specification:
+
+1. **Mission 1: Core Extraction**: Captures Entities, States, Flows, and UI Modules.
+2. **Mission 2: Conflict Detection**: Deterministic sweep for contradictions and duplicates.
+3. **Mission 3: Gap Analysis**: Identifies missing error boundaries, CORS, or loading strategies.
+4. **Mission 4: API Contract (Phase 1)**: Infers method, path, request/response schema, and middleware.
+5. **Mission 5: Database Schema (Phase 1)**: Generates SQL-ready table definitions with types and constraints.
+6. **Mission 6: Auth Architecture (Phase 1)**: Defines mechanism (JWT), roles, and permissions.
+7. **Mission 7: Route Definitions (Phase 1)**: Maps frontend paths to components and data strategies.
+8. **Mission 8: Environment Variables (Phase 2)**: Lists all required server/client secrets and configs.
+9. **Mission 9: Error Handling Map (Phase 2)**: Maps failures to specific user messages and recovery actions.
 - **Micro-Detail Categories**: 
   - **Animations (14 tokens)**: `fade in`, `slide up`, `slide down`, `transition`, `smoothly`, `bounce`, `glow`, `pulsate`, `staggered entrance`, `layout transition`, `expand/collapse`, `scale up on hover`, `rotate`, `shimmer effect`.
   - **UI States (13 tokens)**: `disabled when`, `hidden until`, `active state`, `hover effect`, `loading spinner`, `skeleton screen`, `placeholder text`, `focus state`, `error state`, `empty state`, `pressed state`, `focused-within`, `visited`.
@@ -188,18 +282,18 @@ The system uses a heuristic `getSuggestedIcon` function driven by an 82-keyword 
 
 #### Contradiction Detection
 The engine performs deterministic contradiction analysis across 6 distinct types:
-- **Access Conflicts**: Conflicting access levels (visibility/permission) for components.
-- **Flow Logic Conflicts**: Same trigger with different outcomes/logic paths.
-- **Data Type Conflicts**: Property type mismatches for common properties (id, email, etc.) across entities.
-- **Permission Conflicts**: Admin flows containing public/guest steps (permission leakage).
-- **Semantic Conflicts**: Contradictory architectural constraints (e.g., real-time vs batch).
-- **State Definition Conflicts**: Same state name defined with different scopes (global vs component).
+- **Access Conflicts**: Detects components with multiple, mutually exclusive visibility levels (e.g., a component marked both `public` and `admin-only`).
+- **Flow Logic Conflicts**: Identifies triggers that lead to inconsistent outcomes across different flows.
+- **Data Type Conflicts**: Flags common properties (like `id` or `email`) defined with different primitive types across entities.
+- **Permission Conflicts**: Detects security leakage where a flow marked as `admin` contains steps explicitly labeled for `guests`.
+- **Semantic Meaning Conflicts**: Identifies impossible constraints (e.g., "Must be real-time" and "Must be batch-processed" for the same system).
+- **State Definition Conflicts**: Detects states with the same name but conflicting scopes (e.g., defined as both `global` and `component` local).
 
 #### Duplicate Detection
 Deterministic analysis of overlapping definitions:
-- **Duplicate Entities**: Same entity name defined multiple times across documentation.
-- **Duplicate Flows**: Identical user flows with same triggers and steps.
-- **Duplicate Components**: Components defined in multiple modules, suggesting a need for shared components.
+- **Entity Duplicates**: Multiple definitions of the same data model across different source documents.
+- **Flow Duplicates**: Identical user interactions defined in separate contexts, allowing for consolidation.
+- **Component Duplicates**: Re-definitions of UI components across different modules, flagging them for promotion to shared/global components.
 
 ---
 
