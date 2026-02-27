@@ -42,7 +42,10 @@ import {
   Terminal,
   TestTube,
   Globe,
-  MousePointer2
+  MousePointer2,
+  Code2,
+  Clock,
+  Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactFlow, {
@@ -1141,7 +1144,229 @@ export default function App() {
                   </ul>
                 </div>
               </div>
+
+              {/* ─── Phase 1: Technical Specification Panels ─────────────────── */}
+
+              {/* API Contracts */}
+              {state.model.apiEndpoints && state.model.apiEndpoints.length > 0 && (
+                <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                  <div className={`flex items-center gap-3 mb-6 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
+                    <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-100 text-sky-700'}`}><Code2 size={18} /></div>
+                    <div>
+                      <h3 className="font-bold uppercase text-sm tracking-widest">API Contracts</h3>
+                      <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.apiEndpoints.length} Endpoints Extracted</p>
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {state.model.apiEndpoints.map((ep, i) => (
+                      <div key={i} className={`border rounded-sm p-4 ${theme === 'dark' ? 'border-white/10' : 'border-black/10'}`}>
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className={`text-[9px] font-bold font-mono px-2 py-0.5 rounded-sm ${ep.method === 'GET' ? 'bg-emerald-500/20 text-emerald-500' : ep.method === 'POST' ? 'bg-sky-500/20 text-sky-500' : ep.method === 'PUT' || ep.method === 'PATCH' ? 'bg-amber-500/20 text-amber-500' : 'bg-red-500/20 text-red-500'}`}>{ep.method}</span>
+                          <code className="text-xs font-mono font-medium opacity-80">{ep.path}</code>
+                          <span className={`ml-auto text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${ep.auth === 'none' ? 'bg-slate-500/10 text-slate-400' : 'bg-amber-500/20 text-amber-500'}`}>{ep.auth}</span>
+                        </div>
+                        <p className="text-[11px] opacity-60 mb-2">{ep.description}</p>
+                        {ep.responses && ep.responses.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {ep.responses.map((r, j) => (
+                              <span key={j} className={`text-[8px] font-mono px-1.5 py-0.5 rounded-sm ${r.status < 300 ? 'bg-emerald-500/10 text-emerald-500' : r.status < 400 ? 'bg-sky-500/10 text-sky-500' : 'bg-red-500/10 text-red-500'}`}>{r.status} {r.description}</span>
+                            ))}
+                          </div>
+                        )}
+                        {ep.middleware && ep.middleware.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {ep.middleware.map((m, j) => <span key={j} className={`text-[8px] px-1.5 py-0.5 rounded-sm opacity-50 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>⚙ {m}</span>)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Database Schema */}
+              {state.model.databaseSchema && state.model.databaseSchema.length > 0 && (
+                <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                  <div className={`flex items-center gap-3 mb-6 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
+                    <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-100 text-violet-700'}`}><Database size={18} /></div>
+                    <div>
+                      <h3 className="font-bold uppercase text-sm tracking-widest">Database Schema</h3>
+                      <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.databaseSchema.length} Tables</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {state.model.databaseSchema.map((table, i) => (
+                      <div key={i} className={`border rounded-sm p-4 ${theme === 'dark' ? 'border-violet-500/20 bg-violet-900/5' : 'border-violet-200 bg-violet-50/50'}`}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded-sm ${theme === 'dark' ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-200 text-violet-700'}`}>TABLE</span>
+                          <code className="text-xs font-mono font-bold">{table.name}</code>
+                        </div>
+                        <div className="space-y-1">
+                          {table.columns.map((col, j) => (
+                            <div key={j} className="flex items-center gap-2 text-[10px] font-mono">
+                              {col.primaryKey ? <span className="text-amber-500 opacity-60">🔑</span> : col.unique ? <span className="text-sky-500 opacity-60">◈</span> : <span className="opacity-20">·</span>}
+                              <span className="font-medium">{col.name}</span>
+                              <span className={`ml-auto opacity-50 ${theme === 'dark' ? 'text-violet-300' : 'text-violet-600'}`}>{col.type}</span>
+                              {!col.nullable && <span className="text-[8px] text-red-400 opacity-70">NN</span>}
+                            </div>
+                          ))}
+                        </div>
+                        {table.indexes && table.indexes.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-violet-500/10">
+                            <p className="text-[8px] uppercase opacity-30 font-bold mb-1">Indexes</p>
+                            {table.indexes.map((idx, j) => (
+                              <div key={j} className="text-[9px] opacity-50">{idx.unique ? '◈' : '◇'} {idx.columns.join(', ')}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Auth Architecture + Routes Side-by-Side */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {state.model.authStrategy && (
+                  <div className={`border border-[#141414] rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                    <div className={`flex items-center gap-3 mb-5 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
+                      <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}><Lock size={18} /></div>
+                      <div>
+                        <h3 className="font-bold uppercase text-sm tracking-widest">Auth Architecture</h3>
+                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.authStrategy.type}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <p className="text-[9px] uppercase font-bold opacity-30 mb-2">Roles & Permissions</p>
+                        {state.model.authStrategy.roles.map((role, i) => (
+                          <div key={i} className={`mb-2 p-2 rounded-sm ${theme === 'dark' ? 'bg-amber-900/10' : 'bg-amber-50'}`}>
+                            <p className="text-[10px] font-bold text-amber-600 uppercase">{role.name}</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {role.permissions.map((perm, j) => <span key={j} className={`text-[8px] px-1 rounded-sm opacity-70 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>{perm}</span>)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {state.model.authStrategy.tokenExpiry && (
+                        <div className="flex items-center gap-2 text-xs opacity-60">
+                          <Clock size={12} />Token expiry: <code>{state.model.authStrategy.tokenExpiry}</code>
+                          {state.model.authStrategy.refreshStrategy && <span className="ml-1 text-[8px] bg-sky-500/20 text-sky-500 px-1.5 py-0.5 rounded-sm">{state.model.authStrategy.refreshStrategy} refresh</span>}
+                        </div>
+                      )}
+                      {state.model.authStrategy.protectedRoutes.length > 0 && (
+                        <div>
+                          <p className="text-[9px] uppercase font-bold opacity-30 mb-1">Protected Routes</p>
+                          {state.model.authStrategy.protectedRoutes.map((r, i) => (
+                            <div key={i} className="flex items-center gap-2 text-[10px] font-mono py-0.5">
+                              <span className="opacity-30">🔒</span>
+                              <code className="opacity-70">{r.path}</code>
+                              <span className="ml-auto text-amber-500 text-[8px]">{r.requiredRole}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {state.model.routes && state.model.routes.length > 0 && (
+                  <div className={`border border-[#141414] rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                    <div className={`flex items-center gap-3 mb-5 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
+                      <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700'}`}><Globe size={18} /></div>
+                      <div>
+                        <h3 className="font-bold uppercase text-sm tracking-widest">Route Definitions</h3>
+                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.routes.length} Pages</p>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {state.model.routes.map((route, i) => (
+                        <div key={i} className={`border rounded-sm p-3 ${theme === 'dark' ? 'border-white/10' : 'border-black/10'}`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <code className="text-xs font-mono font-medium">{route.path}</code>
+                            <span className={`ml-auto text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${route.auth === 'required' ? 'bg-amber-500/20 text-amber-500' : route.auth === 'optional' ? 'bg-sky-500/20 text-sky-500' : 'bg-emerald-500/20 text-emerald-500'}`}>{route.auth}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[9px] opacity-50">
+                            <span>{route.component}</span>
+                            {route.layout && <span>· {route.layout}</span>}
+                            {route.dataFetching && <span className={`ml-auto px-1 rounded-sm ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>{route.dataFetching}</span>}
+                          </div>
+                          {route.metadata && <p className="text-[9px] opacity-40 mt-1 truncate">{route.metadata.title}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ─── Phase 2: Configuration & Error Handling ─────────────────── */}
+
+              {state.model.envVars && state.model.envVars.length > 0 && (
+                <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                  <div className={`flex items-center gap-3 mb-6 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
+                    <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-slate-500/20 text-slate-400' : 'bg-slate-100 text-slate-700'}`}><Terminal size={18} /></div>
+                    <div>
+                      <h3 className="font-bold uppercase text-sm tracking-widest">Environment Variables</h3>
+                      <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.envVars.filter(e => e.required).length} Required · {state.model.envVars.filter(e => !e.serverOnly).length} Client-Exposed</p>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px]">
+                      <thead>
+                        <tr className={`border-b ${theme === 'dark' ? 'border-white/10' : 'border-black/10'}`}>
+                          <th className="text-left py-2 pr-4 font-bold uppercase text-[9px] tracking-widest opacity-40">Variable</th>
+                          <th className="text-left py-2 pr-4 font-bold uppercase text-[9px] tracking-widest opacity-40">Type</th>
+                          <th className="text-left py-2 pr-4 font-bold uppercase text-[9px] tracking-widest opacity-40">Required</th>
+                          <th className="text-left py-2 pr-4 font-bold uppercase text-[9px] tracking-widest opacity-40">Scope</th>
+                          <th className="text-left py-2 font-bold uppercase text-[9px] tracking-widest opacity-40">Description</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {state.model.envVars.map((env, i) => (
+                          <tr key={i} className={`border-b ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
+                            <td className="py-2 pr-4 font-mono font-bold text-[10px]">{env.name}</td>
+                            <td className="py-2 pr-4"><span className={`text-[8px] px-1.5 py-0.5 rounded-sm ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>{env.type}</span></td>
+                            <td className="py-2 pr-4">{env.required ? <span className="text-red-500 text-[9px] font-bold">YES</span> : <span className="opacity-30 text-[9px]">no</span>}</td>
+                            <td className="py-2 pr-4">{env.serverOnly ? <span className="text-amber-500 text-[9px]">🔒 server</span> : <span className="text-emerald-500 text-[9px]">🌐 client</span>}</td>
+                            <td className="py-2 opacity-60">{env.description}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {state.model.errorHandlingMap && state.model.errorHandlingMap.length > 0 && (
+                <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                  <div className={`flex items-center gap-3 mb-6 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
+                    <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-700'}`}><AlertTriangle size={18} /></div>
+                    <div>
+                      <h3 className="font-bold uppercase text-sm tracking-widest">Error Handling Map</h3>
+                      <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.errorHandlingMap.length} Error Scenarios</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {state.model.errorHandlingMap.map((entry, i) => (
+                      <div key={i} className={`border rounded-sm p-4 ${theme === 'dark' ? 'border-rose-500/20 bg-rose-900/5' : 'border-rose-200 bg-rose-50/50'}`}>
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div>
+                            <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-sm ${theme === 'dark' ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-200 text-rose-700'}`}>{entry.errorType}</span>
+                            <p className="text-[10px] font-bold mt-1 opacity-80">{entry.location}</p>
+                            <p className="text-[9px] opacity-40">{entry.context}</p>
+                          </div>
+                          <span className={`text-[8px] shrink-0 px-1.5 py-0.5 rounded-sm uppercase font-bold ${entry.recovery === 'retry' ? 'bg-sky-500/20 text-sky-500' : entry.recovery === 'redirect' ? 'bg-amber-500/20 text-amber-500' : entry.recovery === 'show-toast' ? 'bg-emerald-500/20 text-emerald-500' : entry.recovery === 'show-modal' ? 'bg-purple-500/20 text-purple-500' : 'bg-slate-500/20 text-slate-400'}`}>{entry.recovery}</span>
+                        </div>
+                        <p className={`text-[10px] italic p-2 rounded-sm ${theme === 'dark' ? 'bg-white/5' : 'bg-black/3'}`}>"{entry.userMessage}"</p>
+                        {entry.shouldLog && <p className="text-[8px] mt-1 text-amber-500 opacity-70">⚠ Logged to monitoring</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
             </motion.div>
+
           )}
 
           {activeTab === 'tasks' && state.tasks.length > 0 && (

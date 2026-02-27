@@ -83,74 +83,168 @@ export const analyzeDocumentation = async (docs: { name: string; content: string
       messages: [
         {
           role: "system",
-          content: `You are a World-Class Full-Stack Architect and Lead Product Designer. 
-          Analyze the following system documentation with extreme precision and act as a proactive co-architect.`
+          content: `You are a World-Class Full-Stack Architect, API Designer, and Database Engineer.
+          Analyze system documentation with surgical precision. Your goal is not summarization — it is
+          COMPLETE TECHNICAL SPECIFICATION EXTRACTION. Every field you return will be used by an AI 
+          code builder to write actual production code. Be exhaustive, specific, and technically accurate.
+          When information is ambiguous in the docs, make the most reasonable engineering decision and note it.
+          If a category has NO relevant data in the docs, return an empty array — never hallucinate.`
         },
         {
           role: "user",
           content: `Documentation:
           ${combinedDocs}
           
-          Your mission is to transform these specs into a production-ready blueprint. Do not just extract; validate, question, and complete.
+          Your mission is to transform these specs into a complete, production-ready technical blueprint.
+          An AI coding agent will use EVERY field you return to write real code — be exhaustive and precise.
 
-          ### 1. Extraction & Analysis Guidance:
-          - **Provenance**: For EVERY entity, flow, UI module, component, state definition, and micro-detail, you MUST provide the 'provenance' field indicating which file it came from and a short context snippet.
-          - **User Flows**: Identify sequential interactions. Capture Trigger, Steps (Action, Result, State Transition), and Error Paths.
-          - **Micro-Details**: Capture Animations, UI States, Validation Rules, Immediate Feedback, and Accessibility.
-          - **UI Modules**: Extract component hierarchies and technical attributes.
-          - **Constraints**: Infer scope and direct impact.
+          ### 1. Core Extraction (Existing Categories)
+          - **Provenance**: For EVERY item, provide which file it came from and a context snippet.
+          - **Entities**: Data models with typed properties and relationships.
+          - **State Definitions**: All application state (global, component, server).
+          - **User Flows**: Sequential interactions with triggers, steps, error paths.
+          - **Micro-Details**: Animations, UI states, validation rules, a11y, feedback patterns.
+          - **UI Modules**: Full component hierarchies with attributes.
+          - **Constraints**: All performance, security, and design requirements.
 
-          ### 2. Deep Contradiction & Duplicate Detection:
-          - You MUST perform a rigorous cross-file consistency and redundancy check.
-          - **Contradictions**: Look for:
-            * Access conflicts (e.g., "Public" vs "Requires Login").
-            * Type mismatches (e.g., "ID is string" vs "ID is integer").
-            * Logic conflicts (e.g., "Instant update" vs "Nightly batch").
-            * Permission conflicts (e.g., "Admin only" vs "Any user").
-            * Flow conflicts (e.g., same trigger leads to different outcomes).
-          - **Duplicate Content**: Identify elements (Entities, Flows, Components) that are defined multiple times across different files with identical or highly overlapping content.
-          - For each contradiction or duplicate, provide the conflicting/overlapping points with their respective provenance (file and context).
+          ### 2. Contradiction & Duplicate Detection
+          - **Contradictions**: Access conflicts, type mismatches, permission conflicts, logic conflicts.
+          - **Duplicates**: Elements defined multiple times across files.
+          - For each, provide all conflicting points with provenance.
 
-          ### 3. Proactive "Co-Architect" Tasks:
-          - **Deep Gap Analysis**: Identify missing pieces (Loading states, error boundaries, edge cases, data validation, rate limiting, security headers, etc.).
-          - **Architectural Suggestions**: Propose industry-standard solutions.
-          - **Readiness Score**: Calculate a score (0-100).
+          ### 3. Gap Analysis & Readiness Score
+          - Identify ALL missing pieces: error boundaries, loading states, rate limiting, CORS, etc.
+          - Propose concrete solutions for each gap.
+          - Calculate readinessScore (0-100) based on completeness and quality.
 
-          Return the result in JSON format matching this schema:
+          ### 4. NEW: API Contract Layer (Phase 1)
+          Extract ALL HTTP API endpoints mentioned in the docs:
+          - HTTP method (GET/POST/PUT/PATCH/DELETE)
+          - Full path with path parameters (e.g. /api/users/:id)
+          - Complete request body schema (field names, types)
+          - All query parameters with types and required flags
+          - All response codes with their data shapes
+          - Authentication requirement (none/bearer/session/api-key)
+          - Middleware chain (validation, rate limiting, auth guards)
+          If specific endpoints aren't documented, INFER them from the entities and flows.
+
+          ### 5. NEW: Database Schema (Phase 1)
+          For each entity, generate a full SQL-ready table definition:
+          - All columns with precise SQL types (uuid, varchar(255), int, boolean, timestamp, jsonb, text)
+          - Primary key designation
+          - NOT NULL / nullable flags
+          - UNIQUE constraints
+          - DEFAULT values
+          - Foreign key relationships with ON DELETE strategies
+          - Recommended indexes (for frequently queried/joined columns)
+
+          ### 6. NEW: Auth Architecture (Phase 1)
+          Extract a complete auth specification:
+          - Auth mechanism type (JWT/session/OAuth/magic-link/API-key)
+          - All user roles with their specific permissions
+          - Which routes/features are protected and by which role
+          - Token expiry if mentioned
+          - Refresh token strategy
+          If auth is mentioned but strategy is vague, default to JWT with short-lived tokens.
+
+          ### 7. NEW: Route Definitions (Phase 1)
+          List all frontend pages/routes:
+          - URL path (e.g. /dashboard, /users/:id)
+          - Component/page name that renders it
+          - Layout wrapper if applicable
+          - Auth requirement (public/required/optional)
+          - Data fetching strategy (CSR/SSR/SSG/ISR) if determinable
+          - SEO metadata (title, description)
+
+          ### 8. NEW: Environment Variables (Phase 2)
+          List ALL environment variables that will be needed:
+          - Variable name in SCREAMING_SNAKE_CASE
+          - Type (string/number/boolean/url)
+          - Whether it's required or optional
+          - Whether it's server-only or client-exposed (NEXT_PUBLIC_ prefix, VITE_ prefix, etc.)
+          - Default value if applicable
+          - Clear description of what it controls
+          Infer from API endpoints (base URLs, timeouts), auth (secrets, expiry), DB (connection strings), etc.
+
+          ### 9. NEW: Error Handling Map (Phase 2)
+          For each significant user flow and API endpoint, define the error handling:
+          - Where the error occurs (component name or service name)
+          - What operation triggers it
+          - Error type (NetworkError, ValidationError, AuthError, NotFoundError, RateLimitError, etc.)
+          - Exact user-facing message to display
+          - Recovery action (retry/redirect/show-modal/show-toast/silent/fallback-ui)
+          - Whether this error should be logged to a monitoring service
+
+          Return ONLY valid JSON matching this EXACT schema:
           {
             "entities": [{"name": "string", "properties": [{"name": "string", "type": "string", "description": "string"}], "relationships": ["string"], "provenance": {"file": "string", "context": "string"}}],
             "stateDefinitions": [{"name": "string", "scope": "global|component|server", "description": "string", "provenance": {"file": "string", "context": "string"}}],
-            "uiModules": [{"name": "string", "purpose": "string", "components": [{"name": "string", "children": ["recursive UIComponent"], "attributes": [{"name": "string", "value": "string"}], "provenance": {"file": "string", "context": "string"}}], "provenance": {"file": "string", "context": "string"}}],
-            "flows": [{
-              "name": "string", 
-              "trigger": "string", 
-              "steps": [{"action": "string", "expectedResult": "string", "stateTransition": "string"}],
-              "errorPaths": [{"condition": "string", "recovery": "string"}],
-              "outcome": "string",
-              "provenance": {"file": "string", "context": "string"}
-            }],
+            "uiModules": [{"name": "string", "purpose": "string", "components": [{"name": "string", "children": [], "attributes": [{"name": "string", "value": "string"}], "provenance": {"file": "string", "context": "string"}}], "provenance": {"file": "string", "context": "string"}}],
+            "flows": [{"name": "string", "trigger": "string", "steps": [{"action": "string", "expectedResult": "string", "stateTransition": "string"}], "errorPaths": [{"condition": "string", "recovery": "string"}], "outcome": "string", "provenance": {"file": "string", "context": "string"}}],
             "microDetails": [{"category": "ui|logic|validation|animation|accessibility", "description": "string", "impact": "string", "tags": ["string"], "provenance": {"file": "string", "context": "string"}}],
             "systemRules": ["string"],
             "dependencies": ["string"],
             "constraints": [{"description": "string", "scope": "performance|security|design|accessibility|usability|technical|other", "impact": "string", "impactedElements": ["string"]}],
             "gaps": [{"id": "string", "category": "frontend|backend|database|devops|security|accessibility", "description": "string", "proposedSolution": "string", "impact": "high|medium|low", "provenance": {"file": "string", "context": "string"}}],
-            "contradictions": [{
-              "id": "string", 
-              "description": "string", 
-              "conflictingPoints": [{"text": "string", "provenance": {"file": "string", "context": "string"}}], 
-              "resolutionSuggestion": "string",
-              "severity": "high|medium|low"
-            }],
-            "duplicates": [{
-              "id": "string",
-              "elementName": "string",
-              "elementType": "entity|flow|component|rule",
-              "occurrences": [{"file": "string", "context": "string"}],
-              "impact": "low|medium",
-              "suggestion": "string"
-            }],
+            "contradictions": [{"id": "string", "description": "string", "conflictingPoints": [{"text": "string", "provenance": {"file": "string", "context": "string"}}], "resolutionSuggestion": "string", "severity": "high|medium|low"}],
+            "duplicates": [{"id": "string", "elementName": "string", "elementType": "entity|flow|component|rule", "occurrences": [{"file": "string", "context": "string"}], "impact": "low|medium", "suggestion": "string"}],
             "suggestions": [{"id": "string", "type": "best-practice|optimization|feature", "description": "string", "reasoning": "string"}],
-            "readinessScore": 0
+            "readinessScore": 0,
+            "apiEndpoints": [{
+              "method": "GET|POST|PUT|PATCH|DELETE",
+              "path": "string",
+              "description": "string",
+              "auth": "none|bearer|session|api-key",
+              "requestBody": {"schema": "string", "contentType": "application/json"},
+              "queryParams": [{"name": "string", "type": "string", "required": true, "description": "string"}],
+              "pathParams": [{"name": "string", "type": "string"}],
+              "responses": [{"status": 200, "description": "string", "schema": "string"}],
+              "middleware": ["string"],
+              "provenance": {"file": "string", "context": "string"}
+            }],
+            "databaseSchema": [{
+              "name": "string",
+              "columns": [{"name": "string", "type": "string", "nullable": false, "unique": false, "default": "string", "primaryKey": false}],
+              "primaryKey": "string",
+              "foreignKeys": [{"column": "string", "references": "string", "onDelete": "CASCADE|SET NULL|RESTRICT|NO ACTION"}],
+              "indexes": [{"columns": ["string"], "unique": false, "type": "btree|hash|gin|gist"}],
+              "provenance": {"file": "string", "context": "string"}
+            }],
+            "authStrategy": {
+              "type": "JWT|session|OAuth|magic-link|API-key|none",
+              "roles": [{"name": "string", "permissions": ["string"]}],
+              "protectedRoutes": [{"path": "string", "requiredRole": "string"}],
+              "tokenExpiry": "string",
+              "refreshStrategy": "silent|explicit|none",
+              "provenance": {"file": "string", "context": "string"}
+            },
+            "routes": [{
+              "path": "string",
+              "component": "string",
+              "layout": "string",
+              "auth": "required|optional|public",
+              "dataFetching": "SSR|SSG|CSR|ISR",
+              "metadata": {"title": "string", "description": "string"},
+              "provenance": {"file": "string", "context": "string"}
+            }],
+            "envVars": [{
+              "name": "string",
+              "type": "string|number|boolean|url",
+              "required": true,
+              "serverOnly": true,
+              "default": "string",
+              "description": "string",
+              "provenance": {"file": "string", "context": "string"}
+            }],
+            "errorHandlingMap": [{
+              "location": "string",
+              "context": "string",
+              "errorType": "string",
+              "userMessage": "string",
+              "recovery": "retry|redirect|show-modal|show-toast|silent|fallback-ui",
+              "shouldLog": true,
+              "provenance": {"file": "string", "context": "string"}
+            }]
           }`
         }
       ]
