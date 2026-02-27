@@ -22,7 +22,7 @@ export const RuleEditor: React.FC<RuleEditorProps> = ({ predefinedRules, theme }
       <div className="flex justify-between items-end">
         <div>
           <h2 className="font-serif italic text-4xl">Architectural Standards</h2>
-          <p className="text-sm opacity-50 uppercase tracking-widest mt-2">43+ expert heuristics built into the engine</p>
+          <p className="text-sm opacity-50 uppercase tracking-widest mt-2">45+ expert heuristics built into the engine</p>
         </div>
       </div>
 

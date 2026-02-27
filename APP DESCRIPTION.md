@@ -53,7 +53,7 @@ The Documentation-Driven App Builder is a sophisticated AI-powered tool that tra
 ### Core Philosophy
 - **Documentation-First Development**: Start with comprehensive documentation, end with executable code
 - **AI-Augmented Architecture**: Leverages any OpenAI-compatible provider (OpenRouter, Google, Anthropic, or Local LLMs) for deep semantic analysis.
-- **Deterministic Quality Assurance**: 43 built-in architectural heuristics and best practices
+- **Deterministic Quality Assurance**: 45 built-in architectural heuristics and best practices
 - **Atomic Task Decomposition**: Break complex systems into executable, dependency-aware tasks
 
 ---
@@ -621,6 +621,9 @@ import tailwindcss from 'tailwindcss' // Added import for tailwindcss
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.')
@@ -628,7 +631,8 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    host: true
+    host: true,
+    hmr: process.env.DISABLE_HMR !== 'true' // Dynamic HMR for AI Studio compatibility
   },
   build: {
     outDir: 'dist',
