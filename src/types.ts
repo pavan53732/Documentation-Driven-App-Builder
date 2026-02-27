@@ -134,5 +134,12 @@ export interface ProjectState {
   model: SystemModel | null;
   tasks: BuildTask[];
   currentTaskIndex: number;
+  providerConfig: ProviderConfig;
+}
+
+export interface ProviderConfig {
+  apiKey: string;
+  baseURL: string;
+  modelName: string;
 }
 

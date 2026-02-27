@@ -4,16 +4,16 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { 
-  FileText, 
-  Upload, 
-  Cpu, 
-  ListChecks, 
-  Play, 
-  CheckCircle2, 
-  ChevronRight, 
+import {
+  FileText,
+  Upload,
+  Cpu,
+  ListChecks,
+  Play,
+  CheckCircle2,
+  ChevronRight,
   ChevronDown,
-  Copy, 
+  Copy,
   Trash2,
   Loader2,
   AlertCircle,
@@ -45,11 +45,11 @@ import {
   MousePointer2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import ReactFlow, { 
-  Background, 
-  Controls, 
-  MiniMap, 
-  Node, 
+import ReactFlow, {
+  Background,
+  Controls,
+  MiniMap,
+  Node,
   Edge,
   MarkerType,
   Handle,
@@ -57,7 +57,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { ProjectState, BuildTask, SystemModel, UIComponent, UIModule, SmartSuggestion, DuplicateContent } from './types';
-import { analyzeDocumentation, decomposeTasks, quickAnalyze, analyzeRejection } from './services/geminiService';
+import { analyzeDocumentation, decomposeTasks, quickAnalyze, analyzeRejection } from './services/aiService';
 import { ChatBot } from './components/ChatBot';
 import { evaluateRules, applySuggestion, detectContradictions, detectDuplicates, RULES } from './services/ruleEngine';
 import { RuleEditor } from './components/RuleEditor';
@@ -71,11 +71,10 @@ const TaskNode = ({ data }: { data: { title: string; phase: string; status: stri
       {data.status === 'in-progress' && <Loader2 size={10} className="text-blue-500 animate-spin" />}
     </div>
     <div className="text-[10px] font-bold leading-tight">{data.title}</div>
-    <div className={`mt-2 text-[8px] uppercase font-bold px-1 py-0.5 rounded-sm inline-block ${
-      data.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+    <div className={`mt-2 text-[8px] uppercase font-bold px-1 py-0.5 rounded-sm inline-block ${data.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
       data.status === 'in-progress' ? 'bg-blue-100 text-blue-700' :
-      'bg-slate-100 text-slate-700'
-    }`}>
+        'bg-slate-100 text-slate-700'
+      }`}>
       {data.status}
     </div>
     <Handle type="source" position={Position.Bottom} className="w-2 h-2 !bg-[#141414]" />
@@ -94,7 +93,7 @@ const DependencyGraph = ({ tasks }: { tasks: BuildTask[] }) => {
     position: { x: (i % 3) * 250, y: Math.floor(i / 3) * 150 },
   }));
 
-  const edges: Edge[] = tasks.flatMap(task => 
+  const edges: Edge[] = tasks.flatMap(task =>
     task.dependencies.map(depId => ({
       id: `${depId}-${task.id}`,
       source: depId,
@@ -135,8 +134,8 @@ const UIComponentTree = ({ component, depth = 0 }: { component: UIComponent; dep
     <div className="space-y-1">
       <div className="flex items-center gap-2 flex-wrap">
         {depth > 0 && <span className="opacity-20">{'—'.repeat(depth)}</span>}
-        
-        <button 
+
+        <button
           onClick={() => setIsExpanded(!isExpanded)}
           disabled={!hasChildren}
           className={`flex items-center gap-1.5 group ${hasChildren ? 'cursor-pointer' : 'cursor-default'}`}
@@ -157,7 +156,7 @@ const UIComponentTree = ({ component, depth = 0 }: { component: UIComponent; dep
           </span>
         ))}
       </div>
-      
+
       <AnimatePresence initial={false}>
         {isExpanded && hasChildren && (
           <motion.div
@@ -180,7 +179,7 @@ const UIModuleItem = ({ module, theme }: { module: UIModule; theme: 'light' | 'd
   const [isExpanded, setIsExpanded] = useState(true);
   return (
     <div className={`border-l-2 pl-3 py-1 ${theme === 'dark' ? 'border-white/20' : 'border-[#141414]'}`}>
-      <button 
+      <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex items-center gap-2 w-full text-left group"
       >
@@ -228,13 +227,19 @@ export default function App() {
     docs: [],
     model: null,
     tasks: [],
-    currentTaskIndex: 0
+    currentTaskIndex: 0,
+    providerConfig: {
+      apiKey: localStorage.getItem('guide-api-key') || '',
+      baseURL: localStorage.getItem('guide-base-url') || 'https://openrouter.ai/api/v1',
+      modelName: localStorage.getItem('guide-model-name') || 'google/gemini-2.5-flash'
+    }
   });
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isQuickScanning, setIsQuickScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'docs' | 'model' | 'tasks' | 'standards'>('docs');
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
 
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
@@ -296,25 +301,30 @@ export default function App() {
       return;
     }
 
+    if (!state.providerConfig.apiKey) {
+      setError("Please configure your AI API Key using the ✨ AI button before analyzing.");
+      return;
+    }
+
     if (quick) setIsQuickScanning(true);
     else setIsAnalyzing(true);
-    
+
     setError(null);
     try {
-      const model = quick 
-        ? await quickAnalyze(state.docs)
-        : await analyzeDocumentation(state.docs);
-      
-      const tasks = await decomposeTasks(model);
-      
+      const model = quick
+        ? await quickAnalyze(state.docs, state.providerConfig)
+        : await analyzeDocumentation(state.docs, state.providerConfig);
+
+      const tasks = await decomposeTasks(model, state.providerConfig);
+
       // Run structural contradiction detection
       const structuralContradictions = detectContradictions(model);
       model.contradictions = [...(model.contradictions || []), ...structuralContradictions];
-      
+
       // Run structural duplicate detection
       const structuralDuplicates = detectDuplicates(model);
       model.duplicates = [...(model.duplicates || []), ...structuralDuplicates];
-      
+
       setState(prev => ({ ...prev, model, tasks }));
       setActiveTab('model');
     } catch (err) {
@@ -353,9 +363,9 @@ export default function App() {
 
       // Apply the fix to the model
       updatedModel = applySuggestion(prev.model, suggestion);
-      
+
       // Update status
-      const newSmartSuggestions = updatedModel.smartSuggestions.map(s => 
+      const newSmartSuggestions = updatedModel.smartSuggestions.map(s =>
         s.id === id ? { ...s, status: 'accepted' as const } : s
       );
 
@@ -370,7 +380,7 @@ export default function App() {
     // Re-generate tasks after accepting a suggestion
     if (updatedModel) {
       try {
-        const updatedTasks = await decomposeTasks(updatedModel);
+        const updatedTasks = await decomposeTasks(updatedModel, state.providerConfig);
         setState(prev => ({ ...prev, tasks: updatedTasks }));
       } catch (err) {
         console.error("Failed to re-generate tasks:", err);
@@ -380,20 +390,23 @@ export default function App() {
 
   const handleRejectSmartSuggestion = async (id: string) => {
     const reason = prompt("Why are you rejecting this suggestion? (Optional)");
-    
+
     setState(prev => {
       if (!prev.model) return prev;
       const suggestion = prev.model.smartSuggestions.find(s => s.id === id);
       if (!suggestion) return prev;
 
       if (reason) {
-        analyzeRejection(suggestion, reason).then(insight => {
-          console.log('AI Insight on Rejection:', insight);
-          // We could show this insight to the user or use it to tune rules
-        });
+        analyzeRejection(suggestion, reason, state.providerConfig)
+          .then(insight => {
+            console.log('AI Insight on Rejection:', insight);
+          })
+          .catch(err => {
+            console.warn('Could not analyze rejection reason:', err);
+          });
       }
 
-      const newSmartSuggestions = prev.model.smartSuggestions.map(s => 
+      const newSmartSuggestions = prev.model.smartSuggestions.map(s =>
         s.id === id ? { ...s, status: 'rejected' as const } : s
       );
       return {
@@ -412,8 +425,8 @@ export default function App() {
             <Cpu size={24} />
           </div>
           <div>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={state.name}
               onChange={(e) => setState(prev => ({ ...prev, name: e.target.value }))}
               aria-label="Project Name"
@@ -422,9 +435,16 @@ export default function App() {
             <p className="text-[10px] font-mono opacity-50 uppercase tracking-widest">Documentation-Driven App Builder</p>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-4">
-          <button 
+          <button
+            onClick={() => setIsConfigOpen(true)}
+            className={`px-3 py-1.5 rounded-sm text-xs font-bold uppercase transition-colors flex items-center gap-2 border ${theme === 'dark' ? 'bg-[#1A1A1A] text-white border-white/20 hover:bg-white/10' : 'bg-white text-black border-[#141414]/20 hover:bg-black/5'}`}
+          >
+            <Sparkles size={14} className="text-emerald-500" /> AI
+          </button>
+
+          <button
             onClick={toggleTheme}
             aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
             className={`p-2 rounded-full transition-colors ${theme === 'dark' ? 'hover:bg-white/10 text-white' : 'hover:bg-black/5 text-black'}`}
@@ -432,27 +452,27 @@ export default function App() {
             {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
           </button>
           <div className={`flex p-1 rounded-sm border ${theme === 'dark' ? 'bg-[#1A1A1A] border-white/10' : 'bg-white border-[#141414]'}`}>
-            <button 
+            <button
               onClick={() => setActiveTab('docs')}
               className={`px-4 py-1.5 text-xs font-bold uppercase transition-colors ${activeTab === 'docs' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]') : 'hover:bg-black/5'}`}
             >
               01. Docs
             </button>
-            <button 
+            <button
               disabled={!state.model}
               onClick={() => setActiveTab('model')}
               className={`px-4 py-1.5 text-xs font-bold uppercase transition-colors disabled:opacity-30 ${activeTab === 'model' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]') : 'hover:bg-black/5'}`}
             >
               02. Model
             </button>
-            <button 
+            <button
               disabled={state.tasks.length === 0}
               onClick={() => setActiveTab('tasks')}
               className={`px-4 py-1.5 text-xs font-bold uppercase transition-colors disabled:opacity-30 ${activeTab === 'tasks' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]') : 'hover:bg-black/5'}`}
             >
               03. Tasks
             </button>
-            <button 
+            <button
               onClick={() => setActiveTab('standards')}
               className={`px-4 py-1.5 text-xs font-bold uppercase transition-colors ${activeTab === 'standards' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]') : 'hover:bg-black/5'}`}
             >
@@ -462,10 +482,86 @@ export default function App() {
         </div>
       </header>
 
+      <AnimatePresence>
+        {isConfigOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className={`w-full max-w-md p-6 rounded-sm shadow-xl border ${theme === 'dark' ? 'bg-[#1A1A1A] border-white/10 text-white' : 'bg-white border-[#141414] text-[#141414]'}`}
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={20} className="text-emerald-500" />
+                  <h2 className="text-lg font-bold font-serif italic">AI Provider Setup</h2>
+                </div>
+                <button onClick={() => setIsConfigOpen(false)} className="opacity-50 hover:opacity-100">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest opacity-70 mb-1">API Key</label>
+                  <input
+                    type="password"
+                    value={state.providerConfig.apiKey}
+                    onChange={(e) => setState(prev => ({ ...prev, providerConfig: { ...prev.providerConfig, apiKey: e.target.value } }))}
+                    className={`w-full p-2 text-sm rounded-sm border focus:outline-none focus:ring-1 ${theme === 'dark' ? 'bg-black border-white/20 focus:ring-white focus:border-white' : 'bg-[#F8F8F8] border-[#141414]/20 focus:ring-black focus:border-[#141414]'}`}
+                    placeholder="sk-or-v1-..."
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Base URL</label>
+                  <input
+                    type="text"
+                    value={state.providerConfig.baseURL}
+                    onChange={(e) => setState(prev => ({ ...prev, providerConfig: { ...prev.providerConfig, baseURL: e.target.value } }))}
+                    className={`w-full p-2 text-sm rounded-sm border focus:outline-none focus:ring-1 ${theme === 'dark' ? 'bg-black border-white/20 focus:ring-white focus:border-white' : 'bg-[#F8F8F8] border-[#141414]/20 focus:ring-black focus:border-[#141414]'}`}
+                    placeholder="https://openrouter.ai/api/v1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Model Name</label>
+                  <input
+                    type="text"
+                    value={state.providerConfig.modelName}
+                    onChange={(e) => setState(prev => ({ ...prev, providerConfig: { ...prev.providerConfig, modelName: e.target.value } }))}
+                    className={`w-full p-2 text-sm rounded-sm border focus:outline-none focus:ring-1 ${theme === 'dark' ? 'bg-black border-white/20 focus:ring-white focus:border-white' : 'bg-[#F8F8F8] border-[#141414]/20 focus:ring-black focus:border-[#141414]'}`}
+                    placeholder="google/gemini-2.5-flash"
+                  />
+                </div>
+              </div>
+
+              {/* Security notice */}
+              <div className={`mt-4 p-3 rounded-sm text-xs border ${theme === 'dark' ? 'bg-amber-900/20 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-800'}`}>
+                <p className="font-bold mb-1">⚠ Security Notice</p>
+                <p className="opacity-80">Your API key is stored in browser localStorage and is visible in network requests. Use a <strong>scoped key with limited quota</strong> to minimise risk. Never use your master key.</p>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={() => {
+                    localStorage.setItem('guide-api-key', state.providerConfig.apiKey);
+                    localStorage.setItem('guide-base-url', state.providerConfig.baseURL);
+                    localStorage.setItem('guide-model-name', state.providerConfig.modelName);
+                    setIsConfigOpen(false);
+                  }}
+                  className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors border ${theme === 'dark' ? 'bg-white text-black border-white hover:bg-white/90' : 'bg-[#141414] text-white border-[#141414] hover:bg-black'}`}
+                >
+                  Save Configuration
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <main className="max-w-7xl mx-auto p-8">
         <AnimatePresence mode="wait">
           {activeTab === 'docs' && (
-            <motion.div 
+            <motion.div
               key="docs"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -478,8 +574,8 @@ export default function App() {
                   <p className="text-sm opacity-70 mb-6">
                     Upload your system specifications in Markdown format. Guide Engine will parse every line to understand the full system architecture.
                   </p>
-                  
-                  <label 
+
+                  <label
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
@@ -494,23 +590,22 @@ export default function App() {
                       <p className="text-xs font-bold uppercase tracking-wider">Drop .md files here</p>
                       <p className="text-[10px] opacity-50 mt-1">or click to browse</p>
                     </div>
-                    <input 
-                      type="file" 
-                      className="hidden" 
-                      multiple 
-                      accept=".md" 
-                      onChange={handleFileUpload} 
+                    <input
+                      type="file"
+                      className="hidden"
+                      multiple
+                      accept=".md"
+                      onChange={handleFileUpload}
                       aria-label="Upload Markdown Files"
                     />
                   </label>
 
                   <div className="grid grid-cols-1 gap-3 mt-6">
-                    <button 
+                    <button
                       onClick={() => startAnalysis(true)}
                       disabled={isAnalyzing || isQuickScanning || state.docs.length === 0}
-                      className={`w-full py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors border border-[#141414] disabled:opacity-50 ${
-                        theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                      }`}
+                      className={`w-full py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors border border-[#141414] disabled:opacity-50 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                        }`}
                     >
                       {isQuickScanning ? (
                         <>
@@ -524,12 +619,11 @@ export default function App() {
                         </>
                       )}
                     </button>
-                    <button 
+                    <button
                       onClick={() => startAnalysis(false)}
                       disabled={isAnalyzing || isQuickScanning || state.docs.length === 0}
-                      className={`w-full py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors border border-[#141414] disabled:opacity-50 ${
-                        theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                      }`}
+                      className={`w-full py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors border border-[#141414] disabled:opacity-50 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                        }`}
                     >
                       {isAnalyzing ? (
                         <>
@@ -577,7 +671,7 @@ export default function App() {
                               <p className="text-[10px] opacity-50 uppercase">{doc.content.length} characters</p>
                             </div>
                           </div>
-                          <button 
+                          <button
                             onClick={() => removeDoc(i)}
                             className="p-2 opacity-0 group-hover:opacity-100 hover:text-red-600 transition-all"
                           >
@@ -593,7 +687,7 @@ export default function App() {
           )}
 
           {activeTab === 'model' && state.model && (
-            <motion.div 
+            <motion.div
               key="model"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -612,11 +706,10 @@ export default function App() {
                     )}
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setActiveTab('tasks')}
-                  className={`px-6 py-3 text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-colors border border-[#141414] ${
-                    theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                  }`}
+                  className={`px-6 py-3 text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-colors border border-[#141414] ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                    }`}
                 >
                   View Build Plan <ChevronRight size={16} />
                 </button>
@@ -751,43 +844,40 @@ export default function App() {
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {state.model.smartSuggestions.map((sug) => (
-                      <div 
-                        key={sug.id} 
-                        className={`border p-5 rounded-sm transition-all ${
-                          sug.status === 'accepted' ? (theme === 'dark' ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-emerald-200 bg-emerald-50') :
+                      <div
+                        key={sug.id}
+                        className={`border p-5 rounded-sm transition-all ${sug.status === 'accepted' ? (theme === 'dark' ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-emerald-200 bg-emerald-50') :
                           sug.status === 'rejected' ? 'opacity-40 grayscale' :
-                          (theme === 'dark' ? 'border-white/10 hover:border-white/20' : 'border-black/10 hover:border-black/20')
-                        }`}
+                            (theme === 'dark' ? 'border-white/10 hover:border-white/20' : 'border-black/10 hover:border-black/20')
+                          }`}
                       >
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex items-center gap-2">
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm font-bold uppercase ${
-                              sug.category.startsWith('ui') ? 'bg-blue-500/20 text-blue-500' :
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm font-bold uppercase ${sug.category.startsWith('ui') ? 'bg-blue-500/20 text-blue-500' :
                               sug.category.startsWith('logic') ? 'bg-purple-500/20 text-purple-500' :
-                              sug.category === 'a11y' ? 'bg-amber-500/20 text-amber-500' :
-                              'bg-slate-500/20 text-slate-500'
-                            }`}>
+                                sug.category === 'a11y' ? 'bg-amber-500/20 text-amber-500' :
+                                  'bg-slate-500/20 text-slate-500'
+                              }`}>
                               {getCategoryIcon(sug.category)}
                               {sug.category}
                             </span>
-                            <span className={`text-[8px] font-bold uppercase ${
-                              sug.impact === 'high' ? 'text-red-500' : 
-                              sug.impact === 'medium' ? 'text-amber-500' : 
-                              'text-slate-500'
-                            }`}>
+                            <span className={`text-[8px] font-bold uppercase ${sug.impact === 'high' ? 'text-red-500' :
+                              sug.impact === 'medium' ? 'text-amber-500' :
+                                'text-slate-500'
+                              }`}>
                               {sug.impact} Impact
                             </span>
                           </div>
                           {sug.status === 'pending' && (
                             <div className="flex gap-2">
-                              <button 
+                              <button
                                 onClick={() => handleRejectSmartSuggestion(sug.id)}
                                 aria-label="Reject Suggestion"
                                 className={`p-1.5 rounded-sm transition-colors ${theme === 'dark' ? 'hover:bg-red-500/20 text-red-500' : 'hover:bg-red-100 text-red-600'}`}
                               >
                                 <X size={14} />
                               </button>
-                              <button 
+                              <button
                                 onClick={() => handleAcceptSmartSuggestion(sug.id)}
                                 aria-label="Accept Suggestion"
                                 className={`p-1.5 rounded-sm transition-colors ${theme === 'dark' ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
@@ -805,7 +895,7 @@ export default function App() {
 
                         <h4 className="text-sm font-bold mb-1">{sug.description}</h4>
                         <p className="text-xs opacity-70 mb-4 leading-relaxed">{sug.rationale}</p>
-                        
+
                         <div className={`p-3 rounded-sm flex items-center gap-3 ${theme === 'dark' ? 'bg-black/40' : 'bg-black/5'}`}>
                           <div className={`w-8 h-8 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-white/10' : 'bg-white'}`}>
                             <Zap size={14} className="text-emerald-500" />
@@ -909,16 +999,15 @@ export default function App() {
                     {state.model.microDetails?.map((detail, i) => (
                       <div key={i} className={`text-xs border-b pb-3 ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
                         <div className="flex justify-between items-start mb-1">
-                          <span className="text-[9px] font-mono opacity-30">{(i+1).toString().padStart(2, '0')}</span>
+                          <span className="text-[9px] font-mono opacity-30">{(i + 1).toString().padStart(2, '0')}</span>
                           <div className="flex flex-col items-end gap-1">
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${
-                              detail.category === 'ui' ? 'bg-blue-100 text-blue-700' :
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${detail.category === 'ui' ? 'bg-blue-100 text-blue-700' :
                               detail.category === 'logic' ? 'bg-purple-100 text-purple-700' :
-                              detail.category === 'validation' ? 'bg-amber-100 text-amber-700' :
-                              detail.category === 'animation' ? 'bg-pink-100 text-pink-700' :
-                              detail.category === 'accessibility' ? 'bg-emerald-100 text-emerald-700' :
-                              'bg-slate-100 text-slate-700'
-                            }`}>
+                                detail.category === 'validation' ? 'bg-amber-100 text-amber-700' :
+                                  detail.category === 'animation' ? 'bg-pink-100 text-pink-700' :
+                                    detail.category === 'accessibility' ? 'bg-emerald-100 text-emerald-700' :
+                                      'bg-slate-100 text-slate-700'
+                              }`}>
                               {detail.category}
                             </span>
                             {detail.provenance && (
@@ -968,16 +1057,15 @@ export default function App() {
                     {state.model.constraints?.map((constraint, i) => (
                       <div key={i} className={`text-xs border-b pb-3 ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
                         <div className="flex justify-between items-start mb-1">
-                          <span className="text-[9px] font-mono opacity-30">{(i+1).toString().padStart(2, '0')}</span>
-                          <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold flex items-center gap-1 ${
-                            constraint.scope === 'performance' ? 'bg-amber-100 text-amber-700' :
+                          <span className="text-[9px] font-mono opacity-30">{(i + 1).toString().padStart(2, '0')}</span>
+                          <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold flex items-center gap-1 ${constraint.scope === 'performance' ? 'bg-amber-100 text-amber-700' :
                             constraint.scope === 'security' ? 'bg-red-100 text-red-700' :
-                            constraint.scope === 'design' ? 'bg-indigo-100 text-indigo-700' :
-                            constraint.scope === 'accessibility' ? 'bg-emerald-100 text-emerald-700' :
-                            constraint.scope === 'usability' ? 'bg-blue-100 text-blue-700' :
-                            constraint.scope === 'technical' ? 'bg-purple-100 text-purple-700' :
-                            'bg-slate-100 text-slate-700'
-                          }`}>
+                              constraint.scope === 'design' ? 'bg-indigo-100 text-indigo-700' :
+                                constraint.scope === 'accessibility' ? 'bg-emerald-100 text-emerald-700' :
+                                  constraint.scope === 'usability' ? 'bg-blue-100 text-blue-700' :
+                                    constraint.scope === 'technical' ? 'bg-purple-100 text-purple-700' :
+                                      'bg-slate-100 text-slate-700'
+                            }`}>
                             {constraint.scope === 'performance' && <Activity size={10} />}
                             {constraint.scope === 'security' && <Shield size={10} />}
                             {constraint.scope === 'design' && <Palette size={10} />}
@@ -1016,11 +1104,10 @@ export default function App() {
                         <div className="flex justify-between items-start">
                           <p className="text-sm font-bold">{stateDef.name}</p>
                           <div className="flex flex-col items-end gap-1">
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${
-                              stateDef.scope === 'global' ? 'bg-purple-100 text-purple-700' :
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${stateDef.scope === 'global' ? 'bg-purple-100 text-purple-700' :
                               stateDef.scope === 'server' ? 'bg-blue-100 text-blue-700' :
-                              'bg-slate-100 text-slate-700'
-                            }`}>
+                                'bg-slate-100 text-slate-700'
+                              }`}>
                               {stateDef.scope}
                             </span>
                             {stateDef.provenance && (
@@ -1047,7 +1134,7 @@ export default function App() {
                   <ul className="space-y-2">
                     {state.model.systemRules.map((rule, i) => (
                       <li key={i} className="text-xs flex gap-2">
-                        <span className="opacity-30 font-mono">{(i+1).toString().padStart(2, '0')}</span>
+                        <span className="opacity-30 font-mono">{(i + 1).toString().padStart(2, '0')}</span>
                         <span>{rule}</span>
                       </li>
                     ))}
@@ -1058,7 +1145,7 @@ export default function App() {
           )}
 
           {activeTab === 'tasks' && state.tasks.length > 0 && (
-            <motion.div 
+            <motion.div
               key="tasks"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1080,11 +1167,10 @@ export default function App() {
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="font-serif italic text-2xl">Build Plan</h2>
                     <div className="flex items-center gap-2">
-                      <button 
+                      <button
                         onClick={copyAllPrompts}
-                        className={`text-[10px] font-bold uppercase border border-[#141414] px-2 py-1 rounded-sm transition-colors flex items-center gap-1 ${
-                          theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-white text-black hover:bg-black hover:text-white'
-                        }`}
+                        className={`text-[10px] font-bold uppercase border border-[#141414] px-2 py-1 rounded-sm transition-colors flex items-center gap-1 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-white text-black hover:bg-black hover:text-white'
+                          }`}
                         title="Copy all prompts to clipboard"
                       >
                         <ClipboardList size={12} /> All
@@ -1094,17 +1180,16 @@ export default function App() {
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
                     {state.tasks.map((task, i) => (
                       <button
                         key={task.id}
                         onClick={() => setState(prev => ({ ...prev, currentTaskIndex: i }))}
-                        className={`w-full text-left p-4 border transition-all relative group ${
-                          state.currentTaskIndex === i 
-                            ? (theme === 'dark' ? 'bg-white text-black border-white shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]' : 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-[4px_4px_0px_0px_rgba(20,20,20,0.2)]')
-                            : (theme === 'dark' ? 'bg-[#1A1A1A] border-white/10 hover:border-white/30' : 'bg-white border-[#141414]/10 hover:border-[#141414]')
-                        }`}
+                        className={`w-full text-left p-4 border transition-all relative group ${state.currentTaskIndex === i
+                          ? (theme === 'dark' ? 'bg-white text-black border-white shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]' : 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-[4px_4px_0px_0px_rgba(20,20,20,0.2)]')
+                          : (theme === 'dark' ? 'bg-[#1A1A1A] border-white/10 hover:border-white/30' : 'bg-white border-[#141414]/10 hover:border-[#141414]')
+                          }`}
                       >
                         <div className="flex justify-between items-start mb-1">
                           <span className={`text-[9px] font-mono uppercase tracking-widest ${state.currentTaskIndex === i ? 'opacity-50' : 'opacity-30'}`}>
@@ -1113,9 +1198,9 @@ export default function App() {
                           {task.status === 'completed' && <CheckCircle2 size={14} className="text-emerald-500" />}
                         </div>
                         <p className="text-sm font-bold leading-tight">{task.title}</p>
-                        
+
                         {state.currentTaskIndex === i && (
-                          <motion.div 
+                          <motion.div
                             layoutId="active-indicator"
                             className={`absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-8 ${theme === 'dark' ? 'bg-black' : 'bg-[#141414]'}`}
                           />
@@ -1141,13 +1226,12 @@ export default function App() {
                             <h3 className="text-3xl font-bold tracking-tight mb-2">{state.tasks[state.currentTaskIndex].title}</h3>
                             <p className="text-sm opacity-70 max-w-2xl">{state.tasks[state.currentTaskIndex].description}</p>
                           </div>
-                          <button 
+                          <button
                             onClick={() => toggleTaskStatus(state.currentTaskIndex)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-sm text-xs font-bold uppercase transition-all ${
-                              state.tasks[state.currentTaskIndex].status === 'completed'
-                                ? 'bg-emerald-500 text-white'
-                                : (theme === 'dark' ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10')
-                            }`}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-sm text-xs font-bold uppercase transition-all ${state.tasks[state.currentTaskIndex].status === 'completed'
+                              ? 'bg-emerald-500 text-white'
+                              : (theme === 'dark' ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10')
+                              }`}
                           >
                             {state.tasks[state.currentTaskIndex].status === 'completed' ? (
                               <><CheckCircle2 size={16} /> Completed</>
@@ -1162,18 +1246,16 @@ export default function App() {
                             <ListChecks size={14} />
                             Generated Prompt
                           </div>
-                          
+
                           <div className="relative group">
-                            <div className={`p-6 rounded-sm font-mono text-sm leading-relaxed whitespace-pre-wrap min-h-[300px] border ${
-                              theme === 'dark' ? 'bg-black text-[#E4E3E0] border-white/10' : 'bg-[#141414] text-[#E4E3E0] border-[#141414]'
-                            }`}>
+                            <div className={`p-6 rounded-sm font-mono text-sm leading-relaxed whitespace-pre-wrap min-h-[300px] border ${theme === 'dark' ? 'bg-black text-[#E4E3E0] border-white/10' : 'bg-[#141414] text-[#E4E3E0] border-[#141414]'
+                              }`}>
                               {state.tasks[state.currentTaskIndex].prompt}
                             </div>
-                            <button 
+                            <button
                               onClick={() => copyToClipboard(state.tasks[state.currentTaskIndex].prompt)}
-                              className={`absolute top-4 right-4 p-2 rounded-sm transition-colors flex items-center gap-2 text-[10px] font-bold uppercase ${
-                                theme === 'dark' ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-white/10 hover:bg-white/20 text-white'
-                              }`}
+                              className={`absolute top-4 right-4 p-2 rounded-sm transition-colors flex items-center gap-2 text-[10px] font-bold uppercase ${theme === 'dark' ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-white/10 hover:bg-white/20 text-white'
+                                }`}
                             >
                               <Copy size={14} /> Copy Prompt
                             </button>
@@ -1192,21 +1274,20 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="flex gap-4">
-                          <button 
+                          <button
                             disabled={state.currentTaskIndex === 0}
                             onClick={() => setState(prev => ({ ...prev, currentTaskIndex: prev.currentTaskIndex - 1 }))}
                             className="px-4 py-2 text-xs font-bold uppercase hover:underline disabled:opacity-30"
                           >
                             Previous
                           </button>
-                          <button 
+                          <button
                             disabled={state.currentTaskIndex === state.tasks.length - 1}
                             onClick={() => setState(prev => ({ ...prev, currentTaskIndex: prev.currentTaskIndex + 1 }))}
-                            className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors disabled:opacity-30 ${
-                              theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                            }`}
+                            className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors disabled:opacity-30 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                              }`}
                           >
                             Next Task
                           </button>
@@ -1225,7 +1306,7 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
             >
-              <RuleEditor 
+              <RuleEditor
                 predefinedRules={RULES}
                 theme={theme}
               />
@@ -1253,16 +1334,17 @@ export default function App() {
           border-radius: 10px;
         }
       `}</style>
-      <ChatBot 
-        theme={theme} 
-        projectContext={{ 
-          docs: state.docs, 
-          model: state.model, 
+      <ChatBot
+        theme={theme}
+        providerConfig={state.providerConfig}
+        projectContext={{
+          docs: state.docs,
+          model: state.model,
           tasks: state.tasks,
           activeTab,
           currentTaskIndex: state.currentTaskIndex,
           currentTask: state.tasks[state.currentTaskIndex]
-        }} 
+        }}
       />
     </div>
   );

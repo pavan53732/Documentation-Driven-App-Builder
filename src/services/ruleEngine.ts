@@ -1,4 +1,4 @@
-import { SystemModel, UIModule, UIComponent, UserFlow, SmartSuggestion, Contradiction, Provenance, DuplicateContent, Entity } from "../types";
+import { SystemModel, UIModule, UIComponent, UserFlow, SmartSuggestion, Contradiction, Provenance, DuplicateContent, Entity, StateDefinition } from "../types";
 
 export interface Rule {
   id: string;
@@ -97,8 +97,8 @@ export const RULES: Rule[] = [
     description: "Every navigation item should have an associated icon.",
     trigger: { type: "component", selector: ".*(Nav|Menu|Sidebar).*" },
     condition: (model, component: UIComponent) => {
-      const hasIcon = component.attributes?.some(attr => 
-        attr.name.toLowerCase().includes("icon") || 
+      const hasIcon = component.attributes?.some(attr =>
+        attr.name.toLowerCase().includes("icon") ||
         attr.value.toLowerCase().includes("icon")
       );
       return !hasIcon;
@@ -121,8 +121,8 @@ export const RULES: Rule[] = [
     description: "Buttons with common actions (save, delete, edit) should use standard icons.",
     trigger: { type: "component", selector: ".*(Save|Delete|Remove|Edit|Pencil|Trash|Plus|Add|Cancel|Close|Search|Filter|Refresh).*" },
     condition: (model, component: UIComponent) => {
-      const hasIcon = component.attributes?.some(attr => 
-        attr.name.toLowerCase().includes("icon") || 
+      const hasIcon = component.attributes?.some(attr =>
+        attr.name.toLowerCase().includes("icon") ||
         attr.value.toLowerCase().includes("icon")
       );
       return !hasIcon;
@@ -185,8 +185,8 @@ export const RULES: Rule[] = [
     description: "Destructive actions must trigger a confirmation dialog.",
     trigger: { type: "flow", selector: ".*(Delete|Remove|Destroy|Reset|Clear|Irreversible).*" },
     condition: (model, flow: UserFlow) => {
-      const hasConfirmation = flow.steps.some(step => 
-        step.action.toLowerCase().includes("confirm") || 
+      const hasConfirmation = flow.steps.some(step =>
+        step.action.toLowerCase().includes("confirm") ||
         step.expectedResult.toLowerCase().includes("dialog") ||
         step.expectedResult.toLowerCase().includes("modal")
       );
@@ -205,8 +205,8 @@ export const RULES: Rule[] = [
     description: "Form submissions should show success/error feedback.",
     trigger: { type: "flow", selector: ".*(Submit|Save|Create|Update|Post).*" },
     condition: (model, flow: UserFlow) => {
-      const hasFeedback = flow.steps.some(step => 
-        step.expectedResult.toLowerCase().includes("toast") || 
+      const hasFeedback = flow.steps.some(step =>
+        step.expectedResult.toLowerCase().includes("toast") ||
         step.expectedResult.toLowerCase().includes("notification") ||
         step.expectedResult.toLowerCase().includes("success") ||
         step.expectedResult.toLowerCase().includes("feedback")
@@ -261,8 +261,8 @@ export const RULES: Rule[] = [
     description: "Data-fetching components should have skeleton screens or spinners.",
     trigger: { type: "component", selector: ".*(List|Table|Grid|Feed|Dashboard|Chart).*" },
     condition: (model, component: UIComponent) => {
-      const hasLoadingState = component.attributes?.some(attr => 
-        attr.name.toLowerCase().includes("loading") || 
+      const hasLoadingState = component.attributes?.some(attr =>
+        attr.name.toLowerCase().includes("loading") ||
         attr.name.toLowerCase().includes("skeleton")
       );
       return !hasLoadingState;
@@ -284,8 +284,8 @@ export const RULES: Rule[] = [
     description: "Lists and grids should have an empty state illustration.",
     trigger: { type: "component", selector: ".*(List|Table|Grid|Feed).*" },
     condition: (model, component: UIComponent) => {
-      const hasEmptyState = component.children?.some(child => 
-        child.name.toLowerCase().includes("empty") || 
+      const hasEmptyState = component.children?.some(child =>
+        child.name.toLowerCase().includes("empty") ||
         child.name.toLowerCase().includes("placeholder")
       );
       return !hasEmptyState;
@@ -305,8 +305,8 @@ export const RULES: Rule[] = [
     description: "User authentication attempts should be logged.",
     trigger: { type: "flow", selector: ".*(Login|Signup|Auth|SignOut|Password).*" },
     condition: (model, flow: UserFlow) => {
-      const hasLogging = flow.steps.some(step => 
-        step.action.toLowerCase().includes("log") || 
+      const hasLogging = flow.steps.some(step =>
+        step.action.toLowerCase().includes("log") ||
         step.stateTransition?.toLowerCase().includes("audit")
       );
       return !hasLogging;
@@ -324,8 +324,8 @@ export const RULES: Rule[] = [
     description: "Critical API errors should be reported to a monitoring service.",
     trigger: { type: "flow", selector: ".*(API|Fetch|Submit|Post).*" },
     condition: (model, flow: UserFlow) => {
-      const hasErrorReporting = flow.errorPaths?.some(path => 
-        path.recovery.toLowerCase().includes("report") || 
+      const hasErrorReporting = flow.errorPaths?.some(path =>
+        path.recovery.toLowerCase().includes("report") ||
         path.recovery.toLowerCase().includes("sentry") ||
         path.recovery.toLowerCase().includes("log")
       );
@@ -362,8 +362,8 @@ export const RULES: Rule[] = [
     description: "All form inputs must have associated labels or aria-labels.",
     trigger: { type: "component", selector: ".*(Input|Select|Textarea|Field|Checkbox|Radio).*" },
     condition: (model, component: UIComponent) => {
-      const hasLabel = component.attributes?.some(attr => 
-        attr.name.toLowerCase() === "label" || 
+      const hasLabel = component.attributes?.some(attr =>
+        attr.name.toLowerCase() === "label" ||
         attr.name.toLowerCase().includes("aria-label")
       );
       return !hasLabel;
@@ -385,8 +385,8 @@ export const RULES: Rule[] = [
     description: "All images must have alt text.",
     trigger: { type: "component", selector: ".*(Image|Img|Avatar|Logo|Icon).*" },
     condition: (model, component: UIComponent) => {
-      const hasAlt = component.attributes?.some(attr => 
-        attr.name.toLowerCase() === "alt" || 
+      const hasAlt = component.attributes?.some(attr =>
+        attr.name.toLowerCase() === "alt" ||
         attr.name.toLowerCase() === "aria-label"
       );
       return !hasAlt;
@@ -455,8 +455,8 @@ export const RULES: Rule[] = [
     description: "Every public page should have a title and meta description.",
     trigger: { type: "component", selector: ".*(Page|View|Screen).*" },
     condition: (model, component: UIComponent) => {
-      const hasMeta = component.attributes?.some(attr => 
-        attr.name.toLowerCase().includes("title") || 
+      const hasMeta = component.attributes?.some(attr =>
+        attr.name.toLowerCase().includes("title") ||
         attr.name.toLowerCase().includes("meta")
       );
       return !hasMeta;
@@ -474,8 +474,8 @@ export const RULES: Rule[] = [
     description: "Public pages should have Open Graph tags for social sharing.",
     trigger: { type: "component", selector: ".*(Page|View|Screen).*" },
     condition: (model, component: UIComponent) => {
-      const hasOG = component.attributes?.some(attr => 
-        attr.name.toLowerCase().includes("og:") || 
+      const hasOG = component.attributes?.some(attr =>
+        attr.name.toLowerCase().includes("og:") ||
         attr.name.toLowerCase().includes("twitter:")
       );
       return !hasOG;
@@ -527,8 +527,8 @@ export const RULES: Rule[] = [
     description: "Input validation must be present on all API routes.",
     trigger: { type: "flow", selector: ".*(API|Post|Put|Patch).*" },
     condition: (model, flow: UserFlow) => {
-      const hasValidation = flow.steps.some(step => 
-        step.action.toLowerCase().includes("validate") || 
+      const hasValidation = flow.steps.some(step =>
+        step.action.toLowerCase().includes("validate") ||
         step.action.toLowerCase().includes("check") ||
         step.action.toLowerCase().includes("verify") ||
         step.action.toLowerCase().includes("schema")
@@ -548,8 +548,8 @@ export const RULES: Rule[] = [
     description: "API endpoints should have rate limiting.",
     trigger: { type: "flow", selector: ".*(API|Fetch|Submit|Post).*" },
     condition: (model, flow: UserFlow) => {
-      const hasRateLimit = flow.steps.some(step => 
-        step.action.toLowerCase().includes("rate limit") || 
+      const hasRateLimit = flow.steps.some(step =>
+        step.action.toLowerCase().includes("rate limit") ||
         step.action.toLowerCase().includes("throttle")
       );
       return !hasRateLimit;
@@ -567,8 +567,8 @@ export const RULES: Rule[] = [
     description: "Check permissions on every request.",
     trigger: { type: "flow", selector: ".*(API|Fetch|Submit|Post|Put|Delete).*" },
     condition: (model, flow: UserFlow) => {
-      const hasAuth = flow.steps.some(step => 
-        step.action.toLowerCase().includes("auth") || 
+      const hasAuth = flow.steps.some(step =>
+        step.action.toLowerCase().includes("auth") ||
         step.action.toLowerCase().includes("permission") ||
         step.action.toLowerCase().includes("authorize")
       );
@@ -605,8 +605,8 @@ export const RULES: Rule[] = [
     description: "Soft deletes should be used instead of hard deletes.",
     trigger: { type: "entity", selector: ".*" },
     condition: (model, entity: any) => {
-      const hasDeletedAt = entity.properties?.some((p: any) => 
-        p.name?.toLowerCase().includes("deleted") || 
+      const hasDeletedAt = entity.properties?.some((p: any) =>
+        p.name?.toLowerCase().includes("deleted") ||
         p.name?.toLowerCase() === "is_active"
       );
       return !hasDeletedAt;
@@ -640,8 +640,8 @@ export const RULES: Rule[] = [
     description: "Include created_at and updated_at for every table.",
     trigger: { type: "entity", selector: ".*" },
     condition: (model, entity: any) => {
-      const hasTimestamps = entity.properties?.some((p: any) => p.name?.toLowerCase() === "created_at") && 
-                           entity.properties?.some((p: any) => p.name?.toLowerCase() === "updated_at");
+      const hasTimestamps = entity.properties?.some((p: any) => p.name?.toLowerCase() === "created_at") &&
+        entity.properties?.some((p: any) => p.name?.toLowerCase() === "updated_at");
       return !hasTimestamps;
     },
     suggestion: {
@@ -755,8 +755,8 @@ export const RULES: Rule[] = [
     description: "Passwords must never be stored in plain text.",
     trigger: { type: "flow", selector: ".*(Signup|Login|Password|Auth).*" },
     condition: (model, flow: UserFlow) => {
-      const hasHashing = flow.steps.some(step => 
-        step.action?.toLowerCase().includes("hash") || 
+      const hasHashing = flow.steps.some(step =>
+        step.action?.toLowerCase().includes("hash") ||
         step.action?.toLowerCase().includes("bcrypt") ||
         step.action?.toLowerCase().includes("argon2")
       );
@@ -823,8 +823,8 @@ export const RULES: Rule[] = [
     description: "Prevent SQL injection by using parameterized queries.",
     trigger: { type: "flow", selector: ".*(API|Post|Put|Patch|Delete|Query|Search).*" },
     condition: (model, flow: UserFlow) => {
-      const hasParamQueries = flow.steps.some(step => 
-        step.action?.toLowerCase().includes("parameterized") || 
+      const hasParamQueries = flow.steps.some(step =>
+        step.action?.toLowerCase().includes("parameterized") ||
         step.action?.toLowerCase().includes("prepared statement") ||
         step.action?.toLowerCase().includes("orm") ||
         step.action?.toLowerCase().includes("prisma") ||
@@ -1094,7 +1094,7 @@ export const detectContradictions = (model: SystemModel): Contradiction[] => {
   model.flows.forEach(flow => {
     const isAdminFlow = flow.name.toLowerCase().includes('admin') || flow.trigger.toLowerCase().includes('admin');
     const hasPublicStep = flow.steps.some(s => s.action?.toLowerCase().includes('public') || s.action?.toLowerCase().includes('guest'));
-    
+
     if (isAdminFlow && hasPublicStep) {
       contradictions.push({
         id: `contra-perm-${flow.name}`,
@@ -1113,11 +1113,11 @@ export const detectContradictions = (model: SystemModel): Contradiction[] => {
   model.constraints.forEach((c1, i) => {
     model.constraints.forEach((c2, j) => {
       if (i >= j) return;
-      
+
       const d1 = c1.description.toLowerCase();
       const d2 = c2.description.toLowerCase();
-      
-      const isContradictory = 
+
+      const isContradictory =
         (d1.includes('real-time') && d2.includes('batch')) ||
         (d1.includes('synchronous') && d2.includes('asynchronous')) ||
         (d1.includes('mobile-only') && d2.includes('desktop-only'));

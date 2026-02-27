@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageSquare, Send, X, Bot, User, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { chatWithGemini } from '../services/geminiService';
+import { chatWithAI } from '../services/aiService';
+import { ProviderConfig } from '../types';
 
 interface Message {
   role: 'user' | 'model';
@@ -11,9 +12,10 @@ interface Message {
 interface ChatBotProps {
   theme: 'light' | 'dark';
   projectContext?: any;
+  providerConfig?: ProviderConfig;
 }
 
-export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext }) => {
+export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext, providerConfig }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -22,7 +24,7 @@ export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext }) => {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -53,7 +55,7 @@ export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext }) => {
     setIsLoading(true);
 
     try {
-      const response = await chatWithGemini(input, messages, projectContext);
+      const response = await chatWithAI(input, messages, projectContext, providerConfig);
       const modelMessage: Message = { role: 'model', parts: [{ text: response }] };
       setMessages(prev => [...prev, modelMessage]);
       if (!isOpen) {
@@ -79,20 +81,18 @@ export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext }) => {
             role="dialog"
             aria-label="Guide Assistant Chat"
             aria-modal="true"
-            className={`mb-4 w-80 sm:w-96 h-[500px] border border-[#141414] rounded-sm shadow-[8px_8px_0px_0px_rgba(20,20,20,1)] flex flex-col overflow-hidden ${
-              theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'
-            }`}
+            className={`mb-4 w-80 sm:w-96 h-[500px] border border-[#141414] rounded-sm shadow-[8px_8px_0px_0px_rgba(20,20,20,1)] flex flex-col overflow-hidden ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'
+              }`}
           >
             {/* Header */}
-            <div className={`p-4 border-b border-[#141414] flex items-center justify-between ${
-              theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]'
-            }`}>
+            <div className={`p-4 border-b border-[#141414] flex items-center justify-between ${theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]'
+              }`}>
               <div className="flex items-center gap-2">
                 <Bot size={20} />
                 <h3 className="font-bold uppercase text-xs tracking-widest">Guide Assistant</h3>
               </div>
-              <button 
-                onClick={() => setIsOpen(false)} 
+              <button
+                onClick={() => setIsOpen(false)}
                 className="hover:opacity-70 transition-opacity"
                 aria-label="Close Chat"
                 data-testid="chatbot-close-button"
@@ -110,17 +110,16 @@ export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext }) => {
                 </div>
               )}
               {messages.map((msg, i) => (
-                <motion.div 
-                  key={i} 
+                <motion.div
+                  key={i}
                   initial={{ opacity: 0, x: msg.role === 'user' ? 10 : -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                 >
-                  <div className={`max-w-[85%] p-3 rounded-sm text-xs leading-relaxed ${
-                    msg.role === 'user'
-                      ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]')
-                      : (theme === 'dark' ? 'bg-white/5 border border-white/10' : 'bg-black/5 border border-black/5')
-                  }`}>
+                  <div className={`max-w-[85%] p-3 rounded-sm text-xs leading-relaxed ${msg.role === 'user'
+                    ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]')
+                    : (theme === 'dark' ? 'bg-white/5 border border-white/10' : 'bg-black/5 border border-black/5')
+                    }`}>
                     <div className="flex items-center gap-2 mb-1 opacity-50 uppercase text-[9px] font-bold">
                       {msg.role === 'user' ? <User size={10} /> : <Bot size={10} />}
                       {msg.role === 'user' ? 'You' : 'Assistant'}
@@ -130,14 +129,13 @@ export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext }) => {
                 </motion.div>
               ))}
               {isLoading && (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="flex justify-start"
                 >
-                  <div className={`p-3 rounded-sm flex items-center gap-2 text-xs opacity-50 ${
-                    theme === 'dark' ? 'bg-white/5 border border-white/10' : 'bg-black/5 border border-black/5'
-                  }`}>
+                  <div className={`p-3 rounded-sm flex items-center gap-2 text-xs opacity-50 ${theme === 'dark' ? 'bg-white/5 border border-white/10' : 'bg-black/5 border border-black/5'
+                    }`}>
                     <Loader2 size={14} className="animate-spin" />
                     Thinking...
                   </div>
@@ -158,18 +156,16 @@ export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext }) => {
                   placeholder="Type your question..."
                   aria-label="Chat input"
                   data-testid="chatbot-input"
-                  className={`flex-1 bg-transparent border border-[#141414] rounded-sm px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] ${
-                    theme === 'dark' ? 'text-white placeholder-white/30' : 'text-black placeholder-black/30'
-                  }`}
+                  className={`flex-1 bg-transparent border border-[#141414] rounded-sm px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-[#141414] ${theme === 'dark' ? 'text-white placeholder-white/30' : 'text-black placeholder-black/30'
+                    }`}
                 />
                 <button
                   onClick={handleSend}
                   disabled={isLoading || !input.trim()}
                   aria-label="Send message"
                   data-testid="chatbot-send-button"
-                  className={`p-2 rounded-sm transition-all disabled:opacity-30 ${
-                    theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                  }`}
+                  className={`p-2 rounded-sm transition-all disabled:opacity-30 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                    }`}
                 >
                   <Send size={16} />
                 </button>
@@ -187,11 +183,10 @@ export const ChatBot: React.FC<ChatBotProps> = ({ theme, projectContext }) => {
         aria-label={isOpen ? "Close Chat Assistant" : "Open Chat Assistant"}
         aria-expanded={isOpen}
         data-testid="chatbot-toggle-button"
-        className={`relative p-4 rounded-full shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] border border-[#141414] transition-colors ${
-          isOpen 
-            ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]')
-            : (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]')
-        }`}
+        className={`relative p-4 rounded-full shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] border border-[#141414] transition-colors ${isOpen
+          ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]')
+          : (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]')
+          }`}
       >
         {isOpen ? <X size={24} /> : <MessageSquare size={24} />}
         {unreadCount > 0 && !isOpen && (
