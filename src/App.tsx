@@ -330,8 +330,8 @@ export default function App() {
 
       setState(prev => ({ ...prev, model, tasks }));
       setActiveTab('model');
-    } catch (err) {
-      setError("Failed to analyze documentation. Please try again.");
+    } catch (err: any) {
+      setError(`Failed to analyze documentation: ${err?.message || "Please try again."}`);
       console.error(err);
     } finally {
       setIsAnalyzing(false);

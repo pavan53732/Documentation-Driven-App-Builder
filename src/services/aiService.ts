@@ -8,12 +8,23 @@ import { evaluateRules } from "./ruleEngine";
 // Users should use scoped API keys - see the security notice in the config modal.
 const _clientCache = new Map<string, OpenAI>();
 function getClient(config: ProviderConfig): OpenAI {
-  const cacheKey = `${config.apiKey}::${config.baseURL}`;
+  // Normalize baseURL: many users forget to add /v1 for OpenRouter/custom proxies
+  let baseURL = config.baseURL.trim();
+  if (baseURL && (baseURL.includes("openrouter.ai") || baseURL.includes("kilo.ai") || baseURL.includes("api.v1")) && !baseURL.endsWith("/v1") && !baseURL.endsWith("/v1/")) {
+    baseURL = baseURL.endsWith("/") ? `${baseURL}v1` : `${baseURL}/v1`;
+  }
+
+  const cacheKey = `${config.apiKey}::${baseURL}`;
   if (_clientCache.has(cacheKey)) return _clientCache.get(cacheKey)!;
+
   const client = new OpenAI({
     apiKey: config.apiKey,
-    baseURL: config.baseURL,
-    dangerouslyAllowBrowser: true
+    baseURL: baseURL || undefined,
+    dangerouslyAllowBrowser: true,
+    defaultHeaders: {
+      "HTTP-Referer": window.location.origin, // Required by OpenRouter
+      "X-Title": "Documentation-Driven App Builder", // Required by OpenRouter
+    }
   });
   _clientCache.set(cacheKey, client);
   return client;
@@ -255,7 +266,8 @@ export const analyzeDocumentation = async (docs: { name: string; content: string
     return model;
   } catch (err: any) {
     console.error("[analyzeDocumentation] AI call failed:", err);
-    throw new Error(`Analysis failed: ${err?.message ?? "Unknown error. Check your API key and Base URL."}`);
+    const msg = err?.response?.data?.error?.message || err?.message || "Unknown connection error";
+    throw new Error(`Analysis failed: ${msg}`);
   }
 };
 
@@ -308,7 +320,8 @@ export const quickAnalyze = async (docs: { name: string; content: string }[], co
     return model;
   } catch (err: any) {
     console.error("[quickAnalyze] AI call failed:", err);
-    throw new Error(`Quick scan failed: ${err?.message ?? "Unknown error. Check your API key and Base URL."}`);
+    const msg = err?.response?.data?.error?.message || err?.message || "Unknown connection error";
+    throw new Error(`Quick scan failed: ${msg}`);
   }
 };
 
@@ -410,7 +423,8 @@ export const decomposeTasks = async (model: SystemModel, config: ProviderConfig)
     return taskArray.map((t: any) => ({ ...t, status: 'pending' }));
   } catch (err: any) {
     console.error("[decomposeTasks] AI call failed:", err);
-    throw new Error(`Task decomposition failed: ${err?.message ?? "Unknown error."}`);
+    const msg = err?.response?.data?.error?.message || err?.message || "Unknown error";
+    throw new Error(`Task decomposition failed: ${msg}`);
   }
 };
 

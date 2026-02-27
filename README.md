@@ -1,6 +1,6 @@
-# Guide Engine: AI-Powered Documentation Analyzer & Build Planner
+# Documentation-Driven App Builder: AI-Powered Documentation Analyzer & Build Planner
 
-Guide Engine is a sophisticated tool designed to transform raw system documentation into a high-fidelity technical blueprint. It leverages the advanced reasoning capabilities of Gemini 3.1 Pro to extract architectural patterns, user flows, and micro-interactions, automatically generating a structured build plan with granular tasks and dependency tracking.
+Documentation-Driven App Builder is a sophisticated tool designed to transform raw system documentation into a high-fidelity technical blueprint. It leverages any OpenAI-compatible provider (OpenRouter, Google, Anthropic, or Local LLMs) to extract architectural patterns, user flows, and micro-interactions, automatically generating a structured build plan with granular tasks and dependency tracking.
 
 ## 🚀 Core Features
 
@@ -15,11 +15,11 @@ Guide Engine is a sophisticated tool designed to transform raw system documentat
 
 The application is built with a modern, performance-oriented stack:
 
-- **Frontend**: React 18+ with Vite for a fast development experience.
+- **Frontend**: React 19 with Vite for a fast development experience.
 - **Styling**: Tailwind CSS for a "crafted" utility-first design.
 - **Animations**: Framer Motion (motion/react) for smooth transitions and layout animations.
 - **Icons**: Lucide React for consistent, high-quality iconography.
-- **AI Engine**: `@google/genai` utilizing **Gemini 3.1 Pro** with high-level reasoning (`ThinkingLevel.HIGH`) for complex architectural analysis.
+- **AI Engine**: **OpenAI SDK** with multi-provider support (OpenRouter, Kilo.ai, LM Studio, Ollama). Supports high-reasoning models for complex architectural analysis.
 
 ## 📂 File Structure & Functions
 
@@ -29,9 +29,9 @@ Defines the core data schema for the application.
 - `BuildTask`: Represents an atomic step in the generated build plan.
 - `ProjectState`: Manages the overall application state, including uploaded docs and the generated model.
 
-### `src/services/geminiService.ts`
+### `src/services/aiService.ts`
 The intelligence layer of the application.
-- `analyzeDocumentation`: Orchestrates the Gemini 3.1 Pro call to parse raw text into a structured `SystemModel`. It uses a sophisticated set of extraction patterns to identify flows, micro-details, and constraints.
+- `analyzeDocumentation`: Orchestrates the AI call to parse raw text into a structured `SystemModel`. It uses a sophisticated set of extraction patterns to identify flows, micro-details, and constraints.
 - `decomposeTasks`: Transforms the `SystemModel` into a phased `BuildTask` array, generating detailed prompts and inferring dependencies between tasks.
 
 ### `src/App.tsx`
@@ -64,7 +64,7 @@ The build planner doesn't just list tasks; it understands the relationship betwe
 ## 📝 Usage
 
 1. **Upload**: Provide your system documentation (markdown or text).
-2. **Analyze**: The engine processes the text using Gemini's reasoning engine.
+2. **Analyze**: The engine processes the text using your configured AI model.
 3. **Inspect**: Review the extracted `SystemModel` in the dashboard.
 4. **Build**: Use the generated `Build Plan` to guide your implementation, copying hyper-detailed prompts for each atomic task.
 
