@@ -1,3 +1,30 @@
+export type FrameworkCategory = 'frontend' | 'state' | 'data-fetching' | 'backend' | 'database' | 'auth' | 'ui-lib' | 'deployment' | 'animation';
+
+export interface DetectedFramework {
+  name: string;
+  displayName: string;
+  category: FrameworkCategory;
+  confidence: number;
+  evidence: string[];
+}
+
+export interface CompatibilityIssue {
+  type: 'conflict' | 'missing-requirement';
+  frameworks: string[];
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+export interface AutoFixAction {
+  id: string;
+  type: 'insert' | 'update' | 'delete' | 'reorder';
+  target: string;
+  location: string;
+  newValue: any;
+  rationale: string;
+  riskLevel: 'safe' | 'moderate' | 'risky';
+}
+
 export interface SystemModel {
   entities: Entity[];
   stateDefinitions: StateDefinition[];
@@ -13,14 +40,9 @@ export interface SystemModel {
   suggestions: Suggestion[];
   smartSuggestions: SmartSuggestion[];
   readinessScore: number;
-  // Phase 1 — Technical Specification
-  apiEndpoints?: ApiEndpoint[];
-  databaseSchema?: DatabaseTable[];
-  authStrategy?: AuthStrategy;
-  routes?: AppRoute[];
-  // Phase 2 — Configuration & Error Handling
-  envVars?: EnvVar[];
-  errorHandlingMap?: ErrorHandlingEntry[];
+  detectedFrameworks?: DetectedFramework[];
+  compatibilityIssues?: CompatibilityIssue[];
+  files?: { name: string; content: string }[];
 }
 
 export interface Provenance {
@@ -38,6 +60,7 @@ export interface SmartSuggestion {
   action: string;
   status: 'pending' | 'accepted' | 'rejected';
   targetElement?: string;
+  autoFix?: AutoFixAction;
 }
 
 export interface Gap {
@@ -142,92 +165,5 @@ export interface ProjectState {
   model: SystemModel | null;
   tasks: BuildTask[];
   currentTaskIndex: number;
-  providerConfig: ProviderConfig;
 }
 
-export interface ProviderConfig {
-  apiKey: string;
-  baseURL: string;
-  modelName: string;
-}
-
-// ─── Phase 1: API Contract Layer ─────────────────────────────────────────────
-export interface ApiEndpoint {
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-  path: string;
-  description: string;
-  auth: 'none' | 'bearer' | 'session' | 'api-key';
-  requestBody?: { schema: string; contentType: string };
-  queryParams?: { name: string; type: string; required: boolean; description: string }[];
-  pathParams?: { name: string; type: string }[];
-  responses: { status: number; description: string; schema?: string }[];
-  middleware?: string[];
-  provenance?: Provenance;
-}
-
-// ─── Phase 1: Database Schema ─────────────────────────────────────────────────
-export interface DatabaseColumn {
-  name: string;
-  type: string; // e.g. uuid, varchar(255), int, boolean, timestamp, jsonb
-  nullable: boolean;
-  unique?: boolean;
-  default?: string;
-  primaryKey?: boolean;
-}
-
-export interface DatabaseTable {
-  name: string;
-  columns: DatabaseColumn[];
-  primaryKey: string;
-  foreignKeys?: { column: string; references: string; onDelete: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION' }[];
-  indexes?: { columns: string[]; unique: boolean; type?: 'btree' | 'hash' | 'gin' | 'gist' }[];
-  provenance?: Provenance;
-}
-
-// ─── Phase 1: Auth Architecture ───────────────────────────────────────────────
-export interface AuthRole {
-  name: string;
-  permissions: string[];
-}
-
-export interface AuthStrategy {
-  type: 'JWT' | 'session' | 'OAuth' | 'magic-link' | 'API-key' | 'none';
-  roles: AuthRole[];
-  protectedRoutes: { path: string; requiredRole: string }[];
-  tokenExpiry?: string;
-  refreshStrategy?: 'silent' | 'explicit' | 'none';
-  provenance?: Provenance;
-}
-
-// ─── Phase 1: Route Definitions ───────────────────────────────────────────────
-export interface AppRoute {
-  path: string;
-  component: string;
-  layout?: string;
-  auth: 'required' | 'optional' | 'public';
-  dataFetching?: 'SSR' | 'SSG' | 'CSR' | 'ISR';
-  metadata?: { title: string; description?: string };
-  provenance?: Provenance;
-}
-
-// ─── Phase 2: Environment Variables ──────────────────────────────────────────
-export interface EnvVar {
-  name: string;
-  type: 'string' | 'number' | 'boolean' | 'url';
-  required: boolean;
-  serverOnly: boolean;
-  default?: string;
-  description: string;
-  provenance?: Provenance;
-}
-
-// ─── Phase 2: Error Handling Map ─────────────────────────────────────────────
-export interface ErrorHandlingEntry {
-  location: string; // component or service name
-  context: string;  // what operation triggers this error
-  errorType: string; // e.g. NetworkError, ValidationError, AuthError
-  userMessage: string;
-  recovery: 'retry' | 'redirect' | 'show-modal' | 'show-toast' | 'silent' | 'fallback-ui';
-  shouldLog: boolean;
-  provenance?: Provenance;
-}

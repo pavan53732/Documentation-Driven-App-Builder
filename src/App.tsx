@@ -3,17 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useCallback } from 'react';
-import {
-  FileText,
-  Upload,
-  Cpu,
-  ListChecks,
-  Play,
-  CheckCircle2,
-  ChevronRight,
+import React, { useState, useCallback, useEffect } from 'react';
+import { 
+  FileText, 
+  Upload, 
+  Cpu, 
+  ListChecks, 
+  Play, 
+  CheckCircle2, 
+  ChevronRight, 
   ChevronDown,
-  Copy,
+  Copy, 
   Trash2,
   Loader2,
   AlertCircle,
@@ -43,27 +43,27 @@ import {
   TestTube,
   Globe,
   MousePointer2,
-  Code2,
-  Clock,
-  Lock
+  Box,
+  Server
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import ReactFlow, {
-  Background,
-  Controls,
-  MiniMap,
-  Node,
+import ReactFlow, { 
+  Background, 
+  Controls, 
+  MiniMap, 
+  Node, 
   Edge,
   MarkerType,
   Handle,
   Position
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { ProjectState, BuildTask, SystemModel, UIComponent, UIModule, SmartSuggestion, DuplicateContent } from './types';
-import { analyzeDocumentation, decomposeTasks, quickAnalyze, analyzeRejection } from './services/aiService';
+import { BuildTask, SystemModel, UIComponent, UIModule, SmartSuggestion, DuplicateContent } from './types';
+import { analyzeDocumentation, decomposeTasks, quickAnalyze, analyzeRejection } from './services/geminiService';
 import { ChatBot } from './components/ChatBot';
 import { evaluateRules, applySuggestion, detectContradictions, detectDuplicates, RULES } from './services/ruleEngine';
 import { RuleEditor } from './components/RuleEditor';
+import { useAppStore } from './store';
 
 const TaskNode = ({ data }: { data: { title: string; phase: string; status: string } }) => (
   <div className={`p-3 rounded-sm border border-[#141414] shadow-[2px_2px_0px_0px_rgba(20,20,20,1)] bg-white min-w-[150px] transition-all hover:scale-105`}>
@@ -74,10 +74,11 @@ const TaskNode = ({ data }: { data: { title: string; phase: string; status: stri
       {data.status === 'in-progress' && <Loader2 size={10} className="text-blue-500 animate-spin" />}
     </div>
     <div className="text-[10px] font-bold leading-tight">{data.title}</div>
-    <div className={`mt-2 text-[8px] uppercase font-bold px-1 py-0.5 rounded-sm inline-block ${data.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+    <div className={`mt-2 text-[8px] uppercase font-bold px-1 py-0.5 rounded-sm inline-block ${
+      data.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
       data.status === 'in-progress' ? 'bg-blue-100 text-blue-700' :
-        'bg-slate-100 text-slate-700'
-      }`}>
+      'bg-slate-100 text-slate-700'
+    }`}>
       {data.status}
     </div>
     <Handle type="source" position={Position.Bottom} className="w-2 h-2 !bg-[#141414]" />
@@ -96,7 +97,7 @@ const DependencyGraph = ({ tasks }: { tasks: BuildTask[] }) => {
     position: { x: (i % 3) * 250, y: Math.floor(i / 3) * 150 },
   }));
 
-  const edges: Edge[] = tasks.flatMap(task =>
+  const edges: Edge[] = tasks.flatMap(task => 
     task.dependencies.map(depId => ({
       id: `${depId}-${task.id}`,
       source: depId,
@@ -137,10 +138,11 @@ const UIComponentTree = ({ component, depth = 0 }: { component: UIComponent; dep
     <div className="space-y-1">
       <div className="flex items-center gap-2 flex-wrap">
         {depth > 0 && <span className="opacity-20">{'—'.repeat(depth)}</span>}
-
-        <button
+        
+        <button 
           onClick={() => setIsExpanded(!isExpanded)}
           disabled={!hasChildren}
+          title={isExpanded ? "Collapse" : "Expand"}
           className={`flex items-center gap-1.5 group ${hasChildren ? 'cursor-pointer' : 'cursor-default'}`}
         >
           {hasChildren && (
@@ -159,7 +161,7 @@ const UIComponentTree = ({ component, depth = 0 }: { component: UIComponent; dep
           </span>
         ))}
       </div>
-
+      
       <AnimatePresence initial={false}>
         {isExpanded && hasChildren && (
           <motion.div
@@ -182,8 +184,9 @@ const UIModuleItem = ({ module, theme }: { module: UIModule; theme: 'light' | 'd
   const [isExpanded, setIsExpanded] = useState(true);
   return (
     <div className={`border-l-2 pl-3 py-1 ${theme === 'dark' ? 'border-white/20' : 'border-[#141414]'}`}>
-      <button
+      <button 
         onClick={() => setIsExpanded(!isExpanded)}
+        title={isExpanded ? "Collapse" : "Expand"}
         className="flex items-center gap-2 w-full text-left group"
       >
         <div className="flex-1 flex justify-between items-start">
@@ -218,62 +221,88 @@ const UIModuleItem = ({ module, theme }: { module: UIModule; theme: 'light' | 'd
   );
 };
 
+type ToastType = 'success' | 'error' | 'info';
+interface Toast {
+  id: string;
+  message: string;
+  type: ToastType;
+}
+
 export default function App() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem('guide-theme');
-    return (saved as 'light' | 'dark') || 'light';
-  });
+  const {
+    theme,
+    name,
+    docs,
+    model,
+    tasks,
+    currentTaskIndex,
+    isAnalyzing,
+    isQuickScanning,
+    isGlobalLoading,
+    activeTab,
+    streamedRawText,
+    customRules,
+    setTheme,
+    setName,
+    addDocs,
+    removeDoc,
+    setModel,
+    setTasks,
+    setCurrentTaskIndex,
+    setIsAnalyzing,
+    setIsQuickScanning,
+    setIsGlobalLoading,
+    setActiveTab,
+    setStreamedRawText,
+    setCustomRules,
+    toggleTaskStatus,
+    loadProject,
+  } = useAppStore();
 
-  const [state, setState] = useState<ProjectState>({
-    id: crypto.randomUUID(),
-    name: 'New Project',
-    docs: [],
-    model: null,
-    tasks: [],
-    currentTaskIndex: 0,
-    providerConfig: {
-      apiKey: localStorage.getItem('guide-api-key') || '',
-      baseURL: localStorage.getItem('guide-base-url') || 'https://openrouter.ai/api/v1',
-      modelName: localStorage.getItem('guide-model-name') || 'google/gemini-2.5-flash'
-    }
-  });
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isQuickScanning, setIsQuickScanning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'docs' | 'model' | 'tasks' | 'standards'>('docs');
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  useEffect(() => {
+    loadProject();
+  }, [loadProject]);
+
+  const showToast = useCallback((message: string, type: ToastType = 'info') => {
+    const id = crypto.randomUUID();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 3000);
+  }, []);
 
   const toggleTheme = () => {
-    const newTheme = theme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-    localStorage.setItem('guide-theme', newTheme);
+    setTheme(theme === 'light' ? 'dark' : 'light');
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
+    const newDocs: { name: string; content: string }[] = [];
+    let processed = 0;
+
     Array.from(files).forEach((file: File) => {
       if (file.name.endsWith('.md')) {
         const reader = new FileReader();
         reader.onload = (event) => {
           const content = event.target?.result as string;
-          setState(prev => ({
-            ...prev,
-            docs: [...prev.docs, { name: file.name, content }]
-          }));
+          newDocs.push({ name: file.name, content });
+          processed++;
+          if (processed === files.length) {
+            addDocs(newDocs);
+          }
         };
         reader.readAsText(file);
+      } else {
+        processed++;
+        if (processed === files.length && newDocs.length > 0) {
+          addDocs(newDocs);
+        }
       }
     });
-  };
-
-  const removeDoc = (index: number) => {
-    setState(prev => ({
-      ...prev,
-      docs: prev.docs.filter((_, i) => i !== index)
-    }));
   };
 
   const handleAnalyzeWithRules = () => {
@@ -299,43 +328,46 @@ export default function App() {
   };
 
   const startAnalysis = async (quick = false) => {
-    if (state.docs.length === 0) {
-      setError("Please upload at least one markdown file.");
-      return;
-    }
-
-    if (!state.providerConfig.apiKey) {
-      setError("Please configure your AI API Key using the ✨ AI button before analyzing.");
+    if (docs.length === 0) {
+      showToast("Please upload at least one markdown file.", 'error');
       return;
     }
 
     if (quick) setIsQuickScanning(true);
     else setIsAnalyzing(true);
-
-    setError(null);
+    
+    setIsGlobalLoading(true);
+    setStreamedRawText(''); // Reset stream
     try {
-      const model = quick
-        ? await quickAnalyze(state.docs, state.providerConfig)
-        : await analyzeDocumentation(state.docs, state.providerConfig);
+      const onChunk = (text: string) => {
+        setStreamedRawText(text);
+      };
 
-      const tasks = await decomposeTasks(model, state.providerConfig);
-
-      // Run structural contradiction detection
-      const structuralContradictions = detectContradictions(model);
-      model.contradictions = [...(model.contradictions || []), ...structuralContradictions];
-
-      // Run structural duplicate detection
-      const structuralDuplicates = detectDuplicates(model);
-      model.duplicates = [...(model.duplicates || []), ...structuralDuplicates];
-
-      setState(prev => ({ ...prev, model, tasks }));
+      const newModel = quick 
+        ? await quickAnalyze(docs, onChunk, customRules)
+        : await analyzeDocumentation(docs, onChunk, customRules);
+      
+      // Parallelize task decomposition and local structural checks
+      const [newTasks, structuralContradictions, structuralDuplicates] = await Promise.all([
+        decomposeTasks(newModel),
+        Promise.resolve(detectContradictions(newModel)),
+        Promise.resolve(detectDuplicates(newModel))
+      ]);
+      
+      newModel.contradictions = [...(newModel.contradictions || []), ...structuralContradictions];
+      newModel.duplicates = [...(newModel.duplicates || []), ...structuralDuplicates];
+      
+      setModel(newModel);
+      setTasks(newTasks);
       setActiveTab('model');
-    } catch (err: any) {
-      setError(`Failed to analyze documentation: ${err?.message || "Please try again."}`);
+      showToast("Analysis complete!", 'success');
+    } catch (err) {
+      showToast("Failed to analyze documentation. Please try again.", 'error');
       console.error(err);
     } finally {
       setIsAnalyzing(false);
       setIsQuickScanning(false);
+      setIsGlobalLoading(false);
     }
   };
 
@@ -344,83 +376,94 @@ export default function App() {
   };
 
   const copyAllPrompts = () => {
-    const allPrompts = state.tasks.map((task, i) => `TASK ${i + 1}: ${task.title}\n\n${task.prompt}`).join('\n\n' + '='.repeat(50) + '\n\n');
+    const allPrompts = tasks.map((task, i) => `TASK ${i + 1}: ${task.title}\n\n${task.prompt}`).join('\n\n' + '='.repeat(50) + '\n\n');
     copyToClipboard(allPrompts);
   };
 
-  const toggleTaskStatus = (index: number) => {
-    setState(prev => {
-      const newTasks = [...prev.tasks];
-      newTasks[index].status = newTasks[index].status === 'completed' ? 'pending' : 'completed';
-      return { ...prev, tasks: newTasks };
-    });
-  };
-
   const handleAcceptSmartSuggestion = async (id: string) => {
-    let updatedModel: SystemModel | null = null;
+    if (!model) return;
+    
+    const suggestion = model.smartSuggestions.find(s => s.id === id);
+    if (!suggestion) return;
 
-    setState(prev => {
-      if (!prev.model) return prev;
-      const suggestion = prev.model.smartSuggestions.find(s => s.id === id);
-      if (!suggestion) return prev;
+    // Apply the fix to the model
+    let updatedModel = applySuggestion(model, suggestion);
+    
+    // Update status
+    const newSmartSuggestions = updatedModel.smartSuggestions.map(s => 
+      s.id === id ? { ...s, status: 'accepted' as const } : s
+    );
 
-      // Apply the fix to the model
-      updatedModel = applySuggestion(prev.model, suggestion);
-
-      // Update status
-      const newSmartSuggestions = updatedModel.smartSuggestions.map(s =>
-        s.id === id ? { ...s, status: 'accepted' as const } : s
-      );
-
-      updatedModel = { ...updatedModel, smartSuggestions: newSmartSuggestions };
-
-      return {
-        ...prev,
-        model: updatedModel
-      };
-    });
+    updatedModel = { ...updatedModel, smartSuggestions: newSmartSuggestions };
+    setModel(updatedModel);
 
     // Re-generate tasks after accepting a suggestion
-    if (updatedModel) {
-      try {
-        const updatedTasks = await decomposeTasks(updatedModel, state.providerConfig);
-        setState(prev => ({ ...prev, tasks: updatedTasks }));
-      } catch (err) {
-        console.error("Failed to re-generate tasks:", err);
-      }
+    setIsGlobalLoading(true);
+    try {
+      const updatedTasks = await decomposeTasks(updatedModel);
+      setTasks(updatedTasks);
+      showToast("Suggestion applied and tasks regenerated.", 'success');
+    } catch (err) {
+      console.error("Failed to re-generate tasks:", err);
+      showToast("Failed to regenerate tasks.", 'error');
+    } finally {
+      setIsGlobalLoading(false);
     }
   };
 
   const handleRejectSmartSuggestion = async (id: string) => {
     const reason = prompt("Why are you rejecting this suggestion? (Optional)");
+    
+    if (!model) return;
+    const suggestion = model.smartSuggestions.find(s => s.id === id);
+    if (!suggestion) return;
 
-    setState(prev => {
-      if (!prev.model) return prev;
-      const suggestion = prev.model.smartSuggestions.find(s => s.id === id);
-      if (!suggestion) return prev;
+    if (reason) {
+      analyzeRejection(suggestion, reason).then(insight => {
+        console.log('AI Insight on Rejection:', insight);
+        // We could show this insight to the user or use it to tune rules
+      });
+    }
 
-      if (reason) {
-        analyzeRejection(suggestion, reason, state.providerConfig)
-          .then(insight => {
-            console.log('AI Insight on Rejection:', insight);
-          })
-          .catch(err => {
-            console.warn('Could not analyze rejection reason:', err);
-          });
-      }
-
-      const newSmartSuggestions = prev.model.smartSuggestions.map(s =>
-        s.id === id ? { ...s, status: 'rejected' as const } : s
-      );
-      return {
-        ...prev,
-        model: { ...prev.model, smartSuggestions: newSmartSuggestions }
-      };
-    });
+    const newSmartSuggestions = model.smartSuggestions.map(s => 
+      s.id === id ? { ...s, status: 'rejected' as const } : s
+    );
+    setModel({ ...model, smartSuggestions: newSmartSuggestions });
   };
 
   return (
     <div className={`min-h-screen transition-colors duration-300 font-sans selection:bg-[#141414] selection:text-[#E4E3E0] ${theme === 'dark' ? 'bg-[#0A0A0A] text-[#E4E3E0]' : 'bg-[#E4E3E0] text-[#141414]'}`}>
+      {/* Toasts */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
+        <AnimatePresence>
+          {toasts.map(toast => (
+            <motion.div
+              key={toast.id}
+              initial={{ opacity: 0, y: -20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+              className={`px-4 py-3 rounded-sm shadow-lg border flex items-center gap-3 min-w-[300px] ${
+                toast.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' :
+                toast.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' :
+                'bg-blue-50 border-blue-200 text-blue-800'
+              } ${theme === 'dark' ? 'bg-opacity-10 backdrop-blur-md' : ''}`}
+            >
+              {toast.type === 'error' && <AlertCircle size={18} className="text-red-500" />}
+              {toast.type === 'success' && <CheckCircle2 size={18} className="text-emerald-500" />}
+              {toast.type === 'info' && <HelpCircle size={18} className="text-blue-500" />}
+              <span className="text-sm font-medium">{toast.message}</span>
+              <button 
+                onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                title="Dismiss Toast"
+                className="ml-auto opacity-50 hover:opacity-100"
+              >
+                <X size={14} />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       {/* Header */}
       <header className={`border-b p-6 flex justify-between items-center backdrop-blur-sm sticky top-0 z-10 ${theme === 'dark' ? 'border-white/10 bg-[#141414]/80' : 'border-[#141414] bg-white/50'}`}>
         <div className="flex items-center gap-3">
@@ -428,54 +471,56 @@ export default function App() {
             <Cpu size={24} />
           </div>
           <div>
-            <input
-              type="text"
-              value={state.name}
-              onChange={(e) => setState(prev => ({ ...prev, name: e.target.value }))}
-              aria-label="Project Name"
-              className="text-xl font-bold tracking-tight uppercase bg-transparent border-none focus:ring-0 p-0 w-full"
-            />
+            <div className="flex items-center gap-3">
+              <input 
+                type="text" 
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                aria-label="Project Name"
+                className="text-xl font-bold tracking-tight uppercase bg-transparent border-none focus:ring-0 p-0 w-auto min-w-[200px]"
+              />
+              {isGlobalLoading && (
+                <div className="flex items-center gap-2 text-xs font-mono opacity-60 bg-black/5 dark:bg-white/10 px-2 py-1 rounded-sm">
+                  <Loader2 size={12} className="animate-spin" />
+                  <span>PROCESSING...</span>
+                </div>
+              )}
+            </div>
             <p className="text-[10px] font-mono opacity-50 uppercase tracking-widest">Documentation-Driven App Builder</p>
           </div>
         </div>
-
+        
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => setIsConfigOpen(true)}
-            className={`px-3 py-1.5 rounded-sm text-xs font-bold uppercase transition-colors flex items-center gap-2 border ${theme === 'dark' ? 'bg-[#1A1A1A] text-white border-white/20 hover:bg-white/10' : 'bg-white text-black border-[#141414]/20 hover:bg-black/5'}`}
-          >
-            <Sparkles size={14} className="text-emerald-500" /> AI
-          </button>
-
-          <button
+          <button 
             onClick={toggleTheme}
             aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+            title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
             className={`p-2 rounded-full transition-colors ${theme === 'dark' ? 'hover:bg-white/10 text-white' : 'hover:bg-black/5 text-black'}`}
           >
             {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
           </button>
           <div className={`flex p-1 rounded-sm border ${theme === 'dark' ? 'bg-[#1A1A1A] border-white/10' : 'bg-white border-[#141414]'}`}>
-            <button
+            <button 
               onClick={() => setActiveTab('docs')}
               className={`px-4 py-1.5 text-xs font-bold uppercase transition-colors ${activeTab === 'docs' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]') : 'hover:bg-black/5'}`}
             >
               01. Docs
             </button>
-            <button
-              disabled={!state.model}
+            <button 
+              disabled={!model}
               onClick={() => setActiveTab('model')}
               className={`px-4 py-1.5 text-xs font-bold uppercase transition-colors disabled:opacity-30 ${activeTab === 'model' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]') : 'hover:bg-black/5'}`}
             >
               02. Model
             </button>
-            <button
-              disabled={state.tasks.length === 0}
+            <button 
+              disabled={tasks.length === 0}
               onClick={() => setActiveTab('tasks')}
               className={`px-4 py-1.5 text-xs font-bold uppercase transition-colors disabled:opacity-30 ${activeTab === 'tasks' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]') : 'hover:bg-black/5'}`}
             >
               03. Tasks
             </button>
-            <button
+            <button 
               onClick={() => setActiveTab('standards')}
               className={`px-4 py-1.5 text-xs font-bold uppercase transition-colors ${activeTab === 'standards' ? (theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]') : 'hover:bg-black/5'}`}
             >
@@ -485,86 +530,10 @@ export default function App() {
         </div>
       </header>
 
-      <AnimatePresence>
-        {isConfigOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className={`w-full max-w-md p-6 rounded-sm shadow-xl border ${theme === 'dark' ? 'bg-[#1A1A1A] border-white/10 text-white' : 'bg-white border-[#141414] text-[#141414]'}`}
-            >
-              <div className="flex justify-between items-center mb-6">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={20} className="text-emerald-500" />
-                  <h2 className="text-lg font-bold font-serif italic">AI Provider Setup</h2>
-                </div>
-                <button onClick={() => setIsConfigOpen(false)} className="opacity-50 hover:opacity-100">
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest opacity-70 mb-1">API Key</label>
-                  <input
-                    type="password"
-                    value={state.providerConfig.apiKey}
-                    onChange={(e) => setState(prev => ({ ...prev, providerConfig: { ...prev.providerConfig, apiKey: e.target.value } }))}
-                    className={`w-full p-2 text-sm rounded-sm border focus:outline-none focus:ring-1 ${theme === 'dark' ? 'bg-black border-white/20 focus:ring-white focus:border-white' : 'bg-[#F8F8F8] border-[#141414]/20 focus:ring-black focus:border-[#141414]'}`}
-                    placeholder="sk-or-v1-..."
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Base URL</label>
-                  <input
-                    type="text"
-                    value={state.providerConfig.baseURL}
-                    onChange={(e) => setState(prev => ({ ...prev, providerConfig: { ...prev.providerConfig, baseURL: e.target.value } }))}
-                    className={`w-full p-2 text-sm rounded-sm border focus:outline-none focus:ring-1 ${theme === 'dark' ? 'bg-black border-white/20 focus:ring-white focus:border-white' : 'bg-[#F8F8F8] border-[#141414]/20 focus:ring-black focus:border-[#141414]'}`}
-                    placeholder="https://openrouter.ai/api/v1"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest opacity-70 mb-1">Model Name</label>
-                  <input
-                    type="text"
-                    value={state.providerConfig.modelName}
-                    onChange={(e) => setState(prev => ({ ...prev, providerConfig: { ...prev.providerConfig, modelName: e.target.value } }))}
-                    className={`w-full p-2 text-sm rounded-sm border focus:outline-none focus:ring-1 ${theme === 'dark' ? 'bg-black border-white/20 focus:ring-white focus:border-white' : 'bg-[#F8F8F8] border-[#141414]/20 focus:ring-black focus:border-[#141414]'}`}
-                    placeholder="google/gemini-2.5-flash"
-                  />
-                </div>
-              </div>
-
-              {/* Security notice */}
-              <div className={`mt-4 p-3 rounded-sm text-xs border ${theme === 'dark' ? 'bg-amber-900/20 border-amber-500/30 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-800'}`}>
-                <p className="font-bold mb-1">⚠ Security Notice</p>
-                <p className="opacity-80">Your API key is stored in browser localStorage and is visible in network requests. Use a <strong>scoped key with limited quota</strong> to minimise risk. Never use your master key.</p>
-              </div>
-
-              <div className="mt-4 flex justify-end">
-                <button
-                  onClick={() => {
-                    localStorage.setItem('guide-api-key', state.providerConfig.apiKey);
-                    localStorage.setItem('guide-base-url', state.providerConfig.baseURL);
-                    localStorage.setItem('guide-model-name', state.providerConfig.modelName);
-                    setIsConfigOpen(false);
-                  }}
-                  className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors border ${theme === 'dark' ? 'bg-white text-black border-white hover:bg-white/90' : 'bg-[#141414] text-white border-[#141414] hover:bg-black'}`}
-                >
-                  Save Configuration
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       <main className="max-w-7xl mx-auto p-8">
         <AnimatePresence mode="wait">
           {activeTab === 'docs' && (
-            <motion.div
+            <motion.div 
               key="docs"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -577,8 +546,8 @@ export default function App() {
                   <p className="text-sm opacity-70 mb-6">
                     Upload your system specifications in Markdown format. Guide Engine will parse every line to understand the full system architecture.
                   </p>
-
-                  <label
+                  
+                  <label 
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
@@ -593,22 +562,23 @@ export default function App() {
                       <p className="text-xs font-bold uppercase tracking-wider">Drop .md files here</p>
                       <p className="text-[10px] opacity-50 mt-1">or click to browse</p>
                     </div>
-                    <input
-                      type="file"
-                      className="hidden"
-                      multiple
-                      accept=".md"
-                      onChange={handleFileUpload}
+                    <input 
+                      type="file" 
+                      className="hidden" 
+                      multiple 
+                      accept=".md" 
+                      onChange={handleFileUpload} 
                       aria-label="Upload Markdown Files"
                     />
                   </label>
 
                   <div className="grid grid-cols-1 gap-3 mt-6">
-                    <button
+                    <button 
                       onClick={() => startAnalysis(true)}
-                      disabled={isAnalyzing || isQuickScanning || state.docs.length === 0}
-                      className={`w-full py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors border border-[#141414] disabled:opacity-50 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                        }`}
+                      disabled={isAnalyzing || isQuickScanning || docs.length === 0}
+                      className={`w-full py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors border border-[#141414] disabled:opacity-50 ${
+                        theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                      }`}
                     >
                       {isQuickScanning ? (
                         <>
@@ -622,11 +592,12 @@ export default function App() {
                         </>
                       )}
                     </button>
-                    <button
+                    <button 
                       onClick={() => startAnalysis(false)}
-                      disabled={isAnalyzing || isQuickScanning || state.docs.length === 0}
-                      className={`w-full py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors border border-[#141414] disabled:opacity-50 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                        }`}
+                      disabled={isAnalyzing || isQuickScanning || docs.length === 0}
+                      className={`w-full py-4 font-bold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors border border-[#141414] disabled:opacity-50 ${
+                        theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                      }`}
                     >
                       {isAnalyzing ? (
                         <>
@@ -641,56 +612,66 @@ export default function App() {
                       )}
                     </button>
                   </div>
-
-                  {error && (
-                    <div className="mt-4 p-4 bg-red-50 border border-red-200 text-red-600 text-xs flex items-center gap-2">
-                      <AlertCircle size={14} />
-                      {error}
-                    </div>
-                  )}
                 </div>
               </div>
 
               <div className="lg:col-span-2">
-                <div className={`border border-[#141414] rounded-sm overflow-hidden shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
-                  <div className={`px-6 py-3 flex justify-between items-center ${theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]'}`}>
-                    <span className="text-[10px] font-mono uppercase tracking-widest">Loaded Documents ({state.docs.length})</span>
-                  </div>
-                  <div className={`divide-y ${theme === 'dark' ? 'divide-white/10' : 'divide-[#141414]/10'}`}>
-                    {state.docs.length === 0 ? (
-                      <div className="p-20 text-center opacity-30 flex flex-col items-center gap-4">
-                        <FileText size={48} />
-                        <p className="text-sm font-bold uppercase tracking-widest">No documents loaded</p>
-                      </div>
-                    ) : (
-                      state.docs.map((doc, i) => (
-                        <div key={i} className={`p-4 flex items-center justify-between transition-colors group ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
-                          <div className="flex items-center gap-4">
-                            <div className={`w-8 h-8 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>
-                              <FileText size={16} />
-                            </div>
-                            <div>
-                              <p className="text-sm font-bold">{doc.name}</p>
-                              <p className="text-[10px] opacity-50 uppercase">{doc.content.length} characters</p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => removeDoc(i)}
-                            className="p-2 opacity-0 group-hover:opacity-100 hover:text-red-600 transition-all"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                <div className={`border border-[#141414] rounded-sm overflow-hidden shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] flex flex-col h-full min-h-[400px] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                  {(isAnalyzing || isQuickScanning) ? (
+                    <>
+                      <div className={`px-6 py-3 flex justify-between items-center ${theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]'}`}>
+                        <div className="flex items-center gap-2">
+                          <Loader2 size={14} className="animate-spin" />
+                          <span className="text-[10px] font-mono uppercase tracking-widest">Streaming Analysis...</span>
                         </div>
-                      ))
-                    )}
-                  </div>
+                      </div>
+                      <div className="p-4 flex-1 overflow-y-auto bg-black text-emerald-400 font-mono text-xs leading-relaxed custom-scrollbar">
+                        <pre className="whitespace-pre-wrap">{streamedRawText || "Connecting to AI Engine..."}</pre>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className={`px-6 py-3 flex justify-between items-center ${theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]'}`}>
+                        <span className="text-[10px] font-mono uppercase tracking-widest">Loaded Documents ({docs.length})</span>
+                      </div>
+                      <div className={`divide-y flex-1 overflow-y-auto ${theme === 'dark' ? 'divide-white/10' : 'divide-[#141414]/10'}`}>
+                        {docs.length === 0 ? (
+                          <div className="p-20 text-center opacity-30 flex flex-col items-center gap-4">
+                            <FileText size={48} />
+                            <p className="text-sm font-bold uppercase tracking-widest">No documents loaded</p>
+                          </div>
+                        ) : (
+                          docs.map((doc, i) => (
+                            <div key={i} className={`p-4 flex items-center justify-between transition-colors group ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}>
+                              <div className="flex items-center gap-4">
+                                <div className={`w-8 h-8 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>
+                                  <FileText size={16} />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold">{doc.name}</p>
+                                  <p className="text-[10px] opacity-50 uppercase">{doc.content.length} characters</p>
+                                </div>
+                              </div>
+                              <button 
+                                onClick={() => removeDoc(i)}
+                                title="Remove Document"
+                                className="p-2 opacity-0 group-hover:opacity-100 hover:text-red-600 transition-all"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </motion.div>
           )}
 
-          {activeTab === 'model' && state.model && (
-            <motion.div
+          {activeTab === 'model' && model && (
+            <motion.div 
               key="model"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -702,21 +683,79 @@ export default function App() {
                   <h2 className="font-serif italic text-4xl">System Model</h2>
                   <div className="flex items-center gap-4 mt-2">
                     <p className="text-sm opacity-50 uppercase tracking-widest">Extracted Architecture & Rules</p>
-                    {state.model.readinessScore !== undefined && (
+                    {model.readinessScore !== undefined && (
                       <div className={`flex items-center gap-2 px-3 py-1 rounded-sm text-[10px] font-bold uppercase tracking-widest ${theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]'}`}>
-                        <Target size={12} /> Readiness: {state.model.readinessScore}%
+                        <Target size={12} /> Readiness: {model.readinessScore}%
                       </div>
                     )}
                   </div>
                 </div>
-                <button
+                <button 
                   onClick={() => setActiveTab('tasks')}
-                  className={`px-6 py-3 text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-colors border border-[#141414] ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                    }`}
+                  className={`px-6 py-3 text-xs font-bold uppercase tracking-widest flex items-center gap-2 transition-colors border border-[#141414] ${
+                    theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                  }`}
                 >
                   View Build Plan <ChevronRight size={16} />
                 </button>
               </div>
+
+              {/* Framework Detection Section */}
+              {model.detectedFrameworks && model.detectedFrameworks.length > 0 && (
+                <div className={`border border-[#141414] rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-blue-500/20 text-blue-500' : 'bg-blue-100 text-blue-700'}`}>
+                        <Box size={18} />
+                      </div>
+                      <div>
+                        <h3 className="font-bold uppercase text-sm tracking-widest">Detected Tech Stack</h3>
+                        <p className="text-[10px] opacity-50 uppercase tracking-widest mt-1">Based on semantic analysis of documentation</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {model.compatibilityIssues && model.compatibilityIssues.length > 0 && (
+                    <div className="mb-6 space-y-2">
+                      {model.compatibilityIssues.map((issue, i) => (
+                        <div key={i} className={`p-3 rounded-sm text-xs flex items-start gap-2 ${
+                          issue.severity === 'error' 
+                            ? (theme === 'dark' ? 'bg-red-500/10 border border-red-500/20 text-red-400' : 'bg-red-50 border border-red-200 text-red-700')
+                            : (theme === 'dark' ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400' : 'bg-amber-50 border border-amber-200 text-amber-700')
+                        }`}>
+                          <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold uppercase text-[10px] mr-2 opacity-70">{issue.type.replace('-', ' ')}</span>
+                            {issue.message}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-3">
+                    {model.detectedFrameworks.map((fw, i) => (
+                      <div key={i} className={`flex items-center gap-2 px-3 py-2 rounded-sm border ${
+                        theme === 'dark' ? 'border-white/10 bg-white/5' : 'border-black/10 bg-black/5'
+                      }`}>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold">{fw.displayName}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[8px] uppercase opacity-50">{fw.category}</span>
+                            <span className={`text-[8px] font-mono px-1 rounded-sm ${
+                              fw.confidence > 80 ? 'text-emerald-500 bg-emerald-500/10' :
+                              fw.confidence > 50 ? 'text-amber-500 bg-amber-500/10' :
+                              'text-slate-500 bg-slate-500/10'
+                            }`}>
+                              {fw.confidence}% confidence
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Architectural Insights Section */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -727,7 +766,7 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">Gap Analysis</h3>
                   </div>
                   <div className="space-y-4">
-                    {state.model.gaps?.map((gap, i) => (
+                    {model.gaps?.map((gap, i) => (
                       <div key={i} className={`text-xs border-b pb-3 last:border-0 ${theme === 'dark' ? 'border-amber-500/10' : 'border-amber-200/50'}`}>
                         <div className="flex justify-between items-start mb-1">
                           <span className="text-[8px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded-sm uppercase font-bold">{gap.category}</span>
@@ -739,7 +778,7 @@ export default function App() {
                         <p className="text-[10px] text-amber-500 mt-1 italic opacity-70">Proposed: {gap.proposedSolution}</p>
                       </div>
                     ))}
-                    {(!state.model.gaps || state.model.gaps.length === 0) && <p className="text-xs opacity-40 italic">No gaps detected.</p>}
+                    {(!model.gaps || model.gaps.length === 0) && <p className="text-xs opacity-40 italic">No gaps detected.</p>}
                   </div>
                 </div>
 
@@ -750,7 +789,7 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">Contradictions</h3>
                   </div>
                   <div className="space-y-4">
-                    {state.model.contradictions?.map((con, i) => (
+                    {model.contradictions?.map((con, i) => (
                       <div key={i} className={`text-xs border-b pb-3 last:border-0 ${theme === 'dark' ? 'border-red-500/10' : 'border-red-200/50'}`}>
                         <p className={`font-bold mb-1 ${theme === 'dark' ? 'text-red-200' : 'text-red-900'}`}>{con.description}</p>
                         <ul className="space-y-2 mb-3">
@@ -772,7 +811,7 @@ export default function App() {
                         <p className={`text-[10px] p-2 rounded-sm italic ${theme === 'dark' ? 'bg-red-500/10 text-red-400' : 'bg-red-100 text-red-800'}`}>Resolution: {con.resolutionSuggestion}</p>
                       </div>
                     ))}
-                    {(!state.model.contradictions || state.model.contradictions.length === 0) && <p className="text-xs opacity-40 italic">No contradictions found.</p>}
+                    {(!model.contradictions || model.contradictions.length === 0) && <p className="text-xs opacity-40 italic">No contradictions found.</p>}
                   </div>
                 </div>
 
@@ -783,7 +822,7 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">Duplicate Content</h3>
                   </div>
                   <div className="space-y-4">
-                    {state.model.duplicates?.map((dup, i) => (
+                    {model.duplicates?.map((dup, i) => (
                       <div key={i} className={`text-xs border-b pb-3 last:border-0 ${theme === 'dark' ? 'border-slate-500/10' : 'border-slate-200/50'}`}>
                         <div className="flex justify-between items-start mb-1">
                           <p className={`font-bold ${theme === 'dark' ? 'text-slate-200' : 'text-slate-900'}`}>{dup.elementName}</p>
@@ -801,7 +840,7 @@ export default function App() {
                         <p className="text-[10px] opacity-70 italic">Suggestion: {dup.suggestion}</p>
                       </div>
                     ))}
-                    {(!state.model.duplicates || state.model.duplicates.length === 0) && <p className="text-xs opacity-40 italic">No duplicates detected.</p>}
+                    {(!model.duplicates || model.duplicates.length === 0) && <p className="text-xs opacity-40 italic">No duplicates detected.</p>}
                   </div>
                 </div>
 
@@ -812,7 +851,7 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">Architectural Suggestions</h3>
                   </div>
                   <div className="space-y-4">
-                    {state.model.suggestions?.map((sug, i) => (
+                    {model.suggestions?.map((sug, i) => (
                       <div key={i} className={`text-xs border-b pb-3 last:border-0 ${theme === 'dark' ? 'border-indigo-500/10' : 'border-indigo-200/50'}`}>
                         <div className="flex justify-between items-start mb-1">
                           <span className="text-[8px] bg-indigo-500/20 text-indigo-500 px-1.5 py-0.5 rounded-sm uppercase font-bold">{sug.type}</span>
@@ -821,13 +860,13 @@ export default function App() {
                         <p className="text-[10px] text-indigo-500 mt-1 opacity-70">{sug.reasoning}</p>
                       </div>
                     ))}
-                    {(!state.model.suggestions || state.model.suggestions.length === 0) && <p className="text-xs opacity-40 italic">No suggestions available.</p>}
+                    {(!model.suggestions || model.suggestions.length === 0) && <p className="text-xs opacity-40 italic">No suggestions available.</p>}
                   </div>
                 </div>
               </div>
 
               {/* Smart Suggestions Section */}
-              {state.model.smartSuggestions && state.model.smartSuggestions.length > 0 && (
+              {model.smartSuggestions && model.smartSuggestions.length > 0 && (
                 <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
                   <div className="flex items-center justify-between mb-8">
                     <div className="flex items-center gap-3">
@@ -841,48 +880,62 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] font-bold uppercase opacity-40">Accepted:</span>
-                      <span className="text-xs font-mono font-bold">{state.model.smartSuggestions.filter(s => s.status === 'accepted').length}</span>
+                      <span className="text-xs font-mono font-bold">{model.smartSuggestions.filter(s => s.status === 'accepted').length}</span>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {state.model.smartSuggestions.map((sug) => (
-                      <div
-                        key={sug.id}
-                        className={`border p-5 rounded-sm transition-all ${sug.status === 'accepted' ? (theme === 'dark' ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-emerald-200 bg-emerald-50') :
+                    {model.smartSuggestions.map((sug) => (
+                      <div 
+                        key={sug.id} 
+                        className={`border p-5 rounded-sm transition-all ${
+                          sug.status === 'accepted' ? (theme === 'dark' ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-emerald-200 bg-emerald-50') :
                           sug.status === 'rejected' ? 'opacity-40 grayscale' :
-                            (theme === 'dark' ? 'border-white/10 hover:border-white/20' : 'border-black/10 hover:border-black/20')
-                          }`}
+                          (theme === 'dark' ? 'border-white/10 hover:border-white/20' : 'border-black/10 hover:border-black/20')
+                        }`}
                       >
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex items-center gap-2">
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm font-bold uppercase ${sug.category.startsWith('ui') ? 'bg-blue-500/20 text-blue-500' :
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm font-bold uppercase ${
+                              sug.category.startsWith('ui') ? 'bg-blue-500/20 text-blue-500' :
                               sug.category.startsWith('logic') ? 'bg-purple-500/20 text-purple-500' :
-                                sug.category === 'a11y' ? 'bg-amber-500/20 text-amber-500' :
-                                  'bg-slate-500/20 text-slate-500'
-                              }`}>
+                              sug.category === 'a11y' ? 'bg-amber-500/20 text-amber-500' :
+                              'bg-slate-500/20 text-slate-500'
+                            }`}>
                               {getCategoryIcon(sug.category)}
                               {sug.category}
                             </span>
-                            <span className={`text-[8px] font-bold uppercase ${sug.impact === 'high' ? 'text-red-500' :
-                              sug.impact === 'medium' ? 'text-amber-500' :
-                                'text-slate-500'
-                              }`}>
+                            <span className={`text-[8px] font-bold uppercase ${
+                              sug.impact === 'high' ? 'text-red-500' : 
+                              sug.impact === 'medium' ? 'text-amber-500' : 
+                              'text-slate-500'
+                            }`}>
                               {sug.impact} Impact
                             </span>
                           </div>
                           {sug.status === 'pending' && (
                             <div className="flex gap-2">
-                              <button
+                              {sug.autoFix && (
+                                <button 
+                                  onClick={() => handleAcceptSmartSuggestion(sug.id)}
+                                  aria-label="Auto Fix"
+                                  className={`px-2 py-1 text-[10px] font-bold uppercase tracking-widest rounded-sm transition-colors flex items-center gap-1 ${theme === 'dark' ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-blue-100 text-blue-700 hover:bg-blue-200'}`}
+                                >
+                                  <Zap size={10} /> Auto Fix
+                                </button>
+                              )}
+                              <button 
                                 onClick={() => handleRejectSmartSuggestion(sug.id)}
                                 aria-label="Reject Suggestion"
+                                title="Reject Suggestion"
                                 className={`p-1.5 rounded-sm transition-colors ${theme === 'dark' ? 'hover:bg-red-500/20 text-red-500' : 'hover:bg-red-100 text-red-600'}`}
                               >
                                 <X size={14} />
                               </button>
-                              <button
+                              <button 
                                 onClick={() => handleAcceptSmartSuggestion(sug.id)}
                                 aria-label="Accept Suggestion"
+                                title="Accept Suggestion"
                                 className={`p-1.5 rounded-sm transition-colors ${theme === 'dark' ? 'bg-emerald-500 text-white hover:bg-emerald-600' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
                               >
                                 <Check size={14} />
@@ -898,7 +951,7 @@ export default function App() {
 
                         <h4 className="text-sm font-bold mb-1">{sug.description}</h4>
                         <p className="text-xs opacity-70 mb-4 leading-relaxed">{sug.rationale}</p>
-
+                        
                         <div className={`p-3 rounded-sm flex items-center gap-3 ${theme === 'dark' ? 'bg-black/40' : 'bg-black/5'}`}>
                           <div className={`w-8 h-8 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-white/10' : 'bg-white'}`}>
                             <Zap size={14} className="text-emerald-500" />
@@ -922,7 +975,7 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">Entities</h3>
                   </div>
                   <div className="space-y-4">
-                    {state.model.entities.map((entity, i) => (
+                    {model.entities.map((entity, i) => (
                       <div key={i} className={`border-l-2 pl-3 py-1 ${theme === 'dark' ? 'border-white/20' : 'border-[#141414]'}`}>
                         <div className="flex justify-between items-start">
                           <p className="text-sm font-bold">{entity.name}</p>
@@ -952,7 +1005,7 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">User Flows</h3>
                   </div>
                   <div className="space-y-6">
-                    {state.model.flows?.map((flow, i) => (
+                    {model.flows?.map((flow, i) => (
                       <div key={i} className={`border-l-2 pl-3 py-1 ${theme === 'dark' ? 'border-white/20' : 'border-[#141414]'}`}>
                         <div className="flex justify-between items-start">
                           <p className="text-sm font-bold">{flow.name}</p>
@@ -999,18 +1052,19 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">Micro Details</h3>
                   </div>
                   <div className="space-y-3">
-                    {state.model.microDetails?.map((detail, i) => (
+                    {model.microDetails?.map((detail, i) => (
                       <div key={i} className={`text-xs border-b pb-3 ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
                         <div className="flex justify-between items-start mb-1">
-                          <span className="text-[9px] font-mono opacity-30">{(i + 1).toString().padStart(2, '0')}</span>
+                          <span className="text-[9px] font-mono opacity-30">{(i+1).toString().padStart(2, '0')}</span>
                           <div className="flex flex-col items-end gap-1">
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${detail.category === 'ui' ? 'bg-blue-100 text-blue-700' :
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${
+                              detail.category === 'ui' ? 'bg-blue-100 text-blue-700' :
                               detail.category === 'logic' ? 'bg-purple-100 text-purple-700' :
-                                detail.category === 'validation' ? 'bg-amber-100 text-amber-700' :
-                                  detail.category === 'animation' ? 'bg-pink-100 text-pink-700' :
-                                    detail.category === 'accessibility' ? 'bg-emerald-100 text-emerald-700' :
-                                      'bg-slate-100 text-slate-700'
-                              }`}>
+                              detail.category === 'validation' ? 'bg-amber-100 text-amber-700' :
+                              detail.category === 'animation' ? 'bg-pink-100 text-pink-700' :
+                              detail.category === 'accessibility' ? 'bg-emerald-100 text-emerald-700' :
+                              'bg-slate-100 text-slate-700'
+                            }`}>
                               {detail.category}
                             </span>
                             {detail.provenance && (
@@ -1044,7 +1098,7 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">UI Modules</h3>
                   </div>
                   <div className="space-y-6">
-                    {state.model.uiModules.map((module, i) => (
+                    {model.uiModules.map((module, i) => (
                       <UIModuleItem key={i} module={module} theme={theme} />
                     ))}
                   </div>
@@ -1057,18 +1111,19 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">Constraints</h3>
                   </div>
                   <div className="space-y-4">
-                    {state.model.constraints?.map((constraint, i) => (
+                    {model.constraints?.map((constraint, i) => (
                       <div key={i} className={`text-xs border-b pb-3 ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
                         <div className="flex justify-between items-start mb-1">
-                          <span className="text-[9px] font-mono opacity-30">{(i + 1).toString().padStart(2, '0')}</span>
-                          <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold flex items-center gap-1 ${constraint.scope === 'performance' ? 'bg-amber-100 text-amber-700' :
+                          <span className="text-[9px] font-mono opacity-30">{(i+1).toString().padStart(2, '0')}</span>
+                          <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold flex items-center gap-1 ${
+                            constraint.scope === 'performance' ? 'bg-amber-100 text-amber-700' :
                             constraint.scope === 'security' ? 'bg-red-100 text-red-700' :
-                              constraint.scope === 'design' ? 'bg-indigo-100 text-indigo-700' :
-                                constraint.scope === 'accessibility' ? 'bg-emerald-100 text-emerald-700' :
-                                  constraint.scope === 'usability' ? 'bg-blue-100 text-blue-700' :
-                                    constraint.scope === 'technical' ? 'bg-purple-100 text-purple-700' :
-                                      'bg-slate-100 text-slate-700'
-                            }`}>
+                            constraint.scope === 'design' ? 'bg-indigo-100 text-indigo-700' :
+                            constraint.scope === 'accessibility' ? 'bg-emerald-100 text-emerald-700' :
+                            constraint.scope === 'usability' ? 'bg-blue-100 text-blue-700' :
+                            constraint.scope === 'technical' ? 'bg-purple-100 text-purple-700' :
+                            'bg-slate-100 text-slate-700'
+                          }`}>
                             {constraint.scope === 'performance' && <Activity size={10} />}
                             {constraint.scope === 'security' && <Shield size={10} />}
                             {constraint.scope === 'design' && <Palette size={10} />}
@@ -1102,15 +1157,16 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">State Definitions</h3>
                   </div>
                   <div className="space-y-4">
-                    {state.model.stateDefinitions?.map((stateDef, i) => (
+                    {model.stateDefinitions?.map((stateDef, i) => (
                       <div key={i} className={`border-l-2 pl-3 py-1 ${theme === 'dark' ? 'border-white/20' : 'border-[#141414]'}`}>
                         <div className="flex justify-between items-start">
                           <p className="text-sm font-bold">{stateDef.name}</p>
                           <div className="flex flex-col items-end gap-1">
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${stateDef.scope === 'global' ? 'bg-purple-100 text-purple-700' :
+                            <span className={`text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${
+                              stateDef.scope === 'global' ? 'bg-purple-100 text-purple-700' :
                               stateDef.scope === 'server' ? 'bg-blue-100 text-blue-700' :
-                                'bg-slate-100 text-slate-700'
-                              }`}>
+                              'bg-slate-100 text-slate-700'
+                            }`}>
                               {stateDef.scope}
                             </span>
                             {stateDef.provenance && (
@@ -1124,7 +1180,7 @@ export default function App() {
                         <p className="text-[10px] opacity-70 mt-1">{stateDef.description}</p>
                       </div>
                     ))}
-                    {(!state.model.stateDefinitions || state.model.stateDefinitions.length === 0) && <p className="text-xs opacity-40 italic">No state definitions found.</p>}
+                    {(!model.stateDefinitions || model.stateDefinitions.length === 0) && <p className="text-xs opacity-40 italic">No state definitions found.</p>}
                   </div>
                 </div>
 
@@ -1135,242 +1191,20 @@ export default function App() {
                     <h3 className="font-bold uppercase text-xs tracking-widest">System Rules</h3>
                   </div>
                   <ul className="space-y-2">
-                    {state.model.systemRules.map((rule, i) => (
+                    {model.systemRules.map((rule, i) => (
                       <li key={i} className="text-xs flex gap-2">
-                        <span className="opacity-30 font-mono">{(i + 1).toString().padStart(2, '0')}</span>
+                        <span className="opacity-30 font-mono">{(i+1).toString().padStart(2, '0')}</span>
                         <span>{rule}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
               </div>
-
-              {/* ─── Phase 1: Technical Specification Panels ─────────────────── */}
-
-              {/* API Contracts */}
-              {state.model.apiEndpoints && state.model.apiEndpoints.length > 0 && (
-                <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
-                  <div className={`flex items-center gap-3 mb-6 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
-                    <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-sky-500/20 text-sky-400' : 'bg-sky-100 text-sky-700'}`}><Code2 size={18} /></div>
-                    <div>
-                      <h3 className="font-bold uppercase text-sm tracking-widest">API Contracts</h3>
-                      <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.apiEndpoints.length} Endpoints Extracted</p>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    {state.model.apiEndpoints.map((ep, i) => (
-                      <div key={i} className={`border rounded-sm p-4 ${theme === 'dark' ? 'border-white/10' : 'border-black/10'}`}>
-                        <div className="flex items-center gap-3 mb-2">
-                          <span className={`text-[9px] font-bold font-mono px-2 py-0.5 rounded-sm ${ep.method === 'GET' ? 'bg-emerald-500/20 text-emerald-500' : ep.method === 'POST' ? 'bg-sky-500/20 text-sky-500' : ep.method === 'PUT' || ep.method === 'PATCH' ? 'bg-amber-500/20 text-amber-500' : 'bg-red-500/20 text-red-500'}`}>{ep.method}</span>
-                          <code className="text-xs font-mono font-medium opacity-80">{ep.path}</code>
-                          <span className={`ml-auto text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${ep.auth === 'none' ? 'bg-slate-500/10 text-slate-400' : 'bg-amber-500/20 text-amber-500'}`}>{ep.auth}</span>
-                        </div>
-                        <p className="text-[11px] opacity-60 mb-2">{ep.description}</p>
-                        {ep.responses && ep.responses.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {ep.responses.map((r, j) => (
-                              <span key={j} className={`text-[8px] font-mono px-1.5 py-0.5 rounded-sm ${r.status < 300 ? 'bg-emerald-500/10 text-emerald-500' : r.status < 400 ? 'bg-sky-500/10 text-sky-500' : 'bg-red-500/10 text-red-500'}`}>{r.status} {r.description}</span>
-                            ))}
-                          </div>
-                        )}
-                        {ep.middleware && ep.middleware.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {ep.middleware.map((m, j) => <span key={j} className={`text-[8px] px-1.5 py-0.5 rounded-sm opacity-50 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>⚙ {m}</span>)}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Database Schema */}
-              {state.model.databaseSchema && state.model.databaseSchema.length > 0 && (
-                <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
-                  <div className={`flex items-center gap-3 mb-6 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
-                    <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-100 text-violet-700'}`}><Database size={18} /></div>
-                    <div>
-                      <h3 className="font-bold uppercase text-sm tracking-widest">Database Schema</h3>
-                      <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.databaseSchema.length} Tables</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {state.model.databaseSchema.map((table, i) => (
-                      <div key={i} className={`border rounded-sm p-4 ${theme === 'dark' ? 'border-violet-500/20 bg-violet-900/5' : 'border-violet-200 bg-violet-50/50'}`}>
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded-sm ${theme === 'dark' ? 'bg-violet-500/20 text-violet-400' : 'bg-violet-200 text-violet-700'}`}>TABLE</span>
-                          <code className="text-xs font-mono font-bold">{table.name}</code>
-                        </div>
-                        <div className="space-y-1">
-                          {table.columns.map((col, j) => (
-                            <div key={j} className="flex items-center gap-2 text-[10px] font-mono">
-                              {col.primaryKey ? <span className="text-amber-500 opacity-60">🔑</span> : col.unique ? <span className="text-sky-500 opacity-60">◈</span> : <span className="opacity-20">·</span>}
-                              <span className="font-medium">{col.name}</span>
-                              <span className={`ml-auto opacity-50 ${theme === 'dark' ? 'text-violet-300' : 'text-violet-600'}`}>{col.type}</span>
-                              {!col.nullable && <span className="text-[8px] text-red-400 opacity-70">NN</span>}
-                            </div>
-                          ))}
-                        </div>
-                        {table.indexes && table.indexes.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-violet-500/10">
-                            <p className="text-[8px] uppercase opacity-30 font-bold mb-1">Indexes</p>
-                            {table.indexes.map((idx, j) => (
-                              <div key={j} className="text-[9px] opacity-50">{idx.unique ? '◈' : '◇'} {idx.columns.join(', ')}</div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Auth Architecture + Routes Side-by-Side */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {state.model.authStrategy && (
-                  <div className={`border border-[#141414] rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
-                    <div className={`flex items-center gap-3 mb-5 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
-                      <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}><Lock size={18} /></div>
-                      <div>
-                        <h3 className="font-bold uppercase text-sm tracking-widest">Auth Architecture</h3>
-                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.authStrategy.type}</p>
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div>
-                        <p className="text-[9px] uppercase font-bold opacity-30 mb-2">Roles & Permissions</p>
-                        {state.model.authStrategy.roles.map((role, i) => (
-                          <div key={i} className={`mb-2 p-2 rounded-sm ${theme === 'dark' ? 'bg-amber-900/10' : 'bg-amber-50'}`}>
-                            <p className="text-[10px] font-bold text-amber-600 uppercase">{role.name}</p>
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {role.permissions.map((perm, j) => <span key={j} className={`text-[8px] px-1 rounded-sm opacity-70 ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>{perm}</span>)}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {state.model.authStrategy.tokenExpiry && (
-                        <div className="flex items-center gap-2 text-xs opacity-60">
-                          <Clock size={12} />Token expiry: <code>{state.model.authStrategy.tokenExpiry}</code>
-                          {state.model.authStrategy.refreshStrategy && <span className="ml-1 text-[8px] bg-sky-500/20 text-sky-500 px-1.5 py-0.5 rounded-sm">{state.model.authStrategy.refreshStrategy} refresh</span>}
-                        </div>
-                      )}
-                      {state.model.authStrategy.protectedRoutes.length > 0 && (
-                        <div>
-                          <p className="text-[9px] uppercase font-bold opacity-30 mb-1">Protected Routes</p>
-                          {state.model.authStrategy.protectedRoutes.map((r, i) => (
-                            <div key={i} className="flex items-center gap-2 text-[10px] font-mono py-0.5">
-                              <span className="opacity-30">🔒</span>
-                              <code className="opacity-70">{r.path}</code>
-                              <span className="ml-auto text-amber-500 text-[8px]">{r.requiredRole}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {state.model.routes && state.model.routes.length > 0 && (
-                  <div className={`border border-[#141414] rounded-sm p-6 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
-                    <div className={`flex items-center gap-3 mb-5 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
-                      <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700'}`}><Globe size={18} /></div>
-                      <div>
-                        <h3 className="font-bold uppercase text-sm tracking-widest">Route Definitions</h3>
-                        <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.routes.length} Pages</p>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      {state.model.routes.map((route, i) => (
-                        <div key={i} className={`border rounded-sm p-3 ${theme === 'dark' ? 'border-white/10' : 'border-black/10'}`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <code className="text-xs font-mono font-medium">{route.path}</code>
-                            <span className={`ml-auto text-[8px] px-1.5 py-0.5 rounded-sm uppercase font-bold ${route.auth === 'required' ? 'bg-amber-500/20 text-amber-500' : route.auth === 'optional' ? 'bg-sky-500/20 text-sky-500' : 'bg-emerald-500/20 text-emerald-500'}`}>{route.auth}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[9px] opacity-50">
-                            <span>{route.component}</span>
-                            {route.layout && <span>· {route.layout}</span>}
-                            {route.dataFetching && <span className={`ml-auto px-1 rounded-sm ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>{route.dataFetching}</span>}
-                          </div>
-                          {route.metadata && <p className="text-[9px] opacity-40 mt-1 truncate">{route.metadata.title}</p>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ─── Phase 2: Configuration & Error Handling ─────────────────── */}
-
-              {state.model.envVars && state.model.envVars.length > 0 && (
-                <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
-                  <div className={`flex items-center gap-3 mb-6 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
-                    <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-slate-500/20 text-slate-400' : 'bg-slate-100 text-slate-700'}`}><Terminal size={18} /></div>
-                    <div>
-                      <h3 className="font-bold uppercase text-sm tracking-widest">Environment Variables</h3>
-                      <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.envVars.filter(e => e.required).length} Required · {state.model.envVars.filter(e => !e.serverOnly).length} Client-Exposed</p>
-                    </div>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-[11px]">
-                      <thead>
-                        <tr className={`border-b ${theme === 'dark' ? 'border-white/10' : 'border-black/10'}`}>
-                          <th className="text-left py-2 pr-4 font-bold uppercase text-[9px] tracking-widest opacity-40">Variable</th>
-                          <th className="text-left py-2 pr-4 font-bold uppercase text-[9px] tracking-widest opacity-40">Type</th>
-                          <th className="text-left py-2 pr-4 font-bold uppercase text-[9px] tracking-widest opacity-40">Required</th>
-                          <th className="text-left py-2 pr-4 font-bold uppercase text-[9px] tracking-widest opacity-40">Scope</th>
-                          <th className="text-left py-2 font-bold uppercase text-[9px] tracking-widest opacity-40">Description</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {state.model.envVars.map((env, i) => (
-                          <tr key={i} className={`border-b ${theme === 'dark' ? 'border-white/5' : 'border-black/5'}`}>
-                            <td className="py-2 pr-4 font-mono font-bold text-[10px]">{env.name}</td>
-                            <td className="py-2 pr-4"><span className={`text-[8px] px-1.5 py-0.5 rounded-sm ${theme === 'dark' ? 'bg-white/10' : 'bg-black/5'}`}>{env.type}</span></td>
-                            <td className="py-2 pr-4">{env.required ? <span className="text-red-500 text-[9px] font-bold">YES</span> : <span className="opacity-30 text-[9px]">no</span>}</td>
-                            <td className="py-2 pr-4">{env.serverOnly ? <span className="text-amber-500 text-[9px]">🔒 server</span> : <span className="text-emerald-500 text-[9px]">🌐 client</span>}</td>
-                            <td className="py-2 opacity-60">{env.description}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {state.model.errorHandlingMap && state.model.errorHandlingMap.length > 0 && (
-                <div className={`border border-[#141414] rounded-sm p-8 shadow-[4px_4px_0px_0px_rgba(20,20,20,1)] ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
-                  <div className={`flex items-center gap-3 mb-6 ${theme === 'dark' ? 'text-white' : 'text-[#141414]'}`}>
-                    <div className={`w-9 h-9 flex items-center justify-center rounded-sm ${theme === 'dark' ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-100 text-rose-700'}`}><AlertTriangle size={18} /></div>
-                    <div>
-                      <h3 className="font-bold uppercase text-sm tracking-widest">Error Handling Map</h3>
-                      <p className="text-[10px] opacity-40 uppercase tracking-widest mt-0.5">{state.model.errorHandlingMap.length} Error Scenarios</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {state.model.errorHandlingMap.map((entry, i) => (
-                      <div key={i} className={`border rounded-sm p-4 ${theme === 'dark' ? 'border-rose-500/20 bg-rose-900/5' : 'border-rose-200 bg-rose-50/50'}`}>
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div>
-                            <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-sm ${theme === 'dark' ? 'bg-rose-500/20 text-rose-400' : 'bg-rose-200 text-rose-700'}`}>{entry.errorType}</span>
-                            <p className="text-[10px] font-bold mt-1 opacity-80">{entry.location}</p>
-                            <p className="text-[9px] opacity-40">{entry.context}</p>
-                          </div>
-                          <span className={`text-[8px] shrink-0 px-1.5 py-0.5 rounded-sm uppercase font-bold ${entry.recovery === 'retry' ? 'bg-sky-500/20 text-sky-500' : entry.recovery === 'redirect' ? 'bg-amber-500/20 text-amber-500' : entry.recovery === 'show-toast' ? 'bg-emerald-500/20 text-emerald-500' : entry.recovery === 'show-modal' ? 'bg-purple-500/20 text-purple-500' : 'bg-slate-500/20 text-slate-400'}`}>{entry.recovery}</span>
-                        </div>
-                        <p className={`text-[10px] italic p-2 rounded-sm ${theme === 'dark' ? 'bg-white/5' : 'bg-black/3'}`}>"{entry.userMessage}"</p>
-                        {entry.shouldLog && <p className="text-[8px] mt-1 text-amber-500 opacity-70">⚠ Logged to monitoring</p>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
             </motion.div>
-
           )}
 
-          {activeTab === 'tasks' && state.tasks.length > 0 && (
-            <motion.div
+          {activeTab === 'tasks' && tasks.length > 0 && (
+            <motion.div 
               key="tasks"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1383,7 +1217,7 @@ export default function App() {
                   <GitBranch size={18} />
                   <h3 className="font-bold uppercase text-xs tracking-widest">Dependency Graph</h3>
                 </div>
-                <DependencyGraph tasks={state.tasks} />
+                <DependencyGraph tasks={tasks} />
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -1392,40 +1226,42 @@ export default function App() {
                   <div className="flex items-center justify-between mb-2">
                     <h2 className="font-serif italic text-2xl">Build Plan</h2>
                     <div className="flex items-center gap-2">
-                      <button
+                      <button 
                         onClick={copyAllPrompts}
-                        className={`text-[10px] font-bold uppercase border border-[#141414] px-2 py-1 rounded-sm transition-colors flex items-center gap-1 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-white text-black hover:bg-black hover:text-white'
-                          }`}
+                        className={`text-[10px] font-bold uppercase border border-[#141414] px-2 py-1 rounded-sm transition-colors flex items-center gap-1 ${
+                          theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-white text-black hover:bg-black hover:text-white'
+                        }`}
                         title="Copy all prompts to clipboard"
                       >
                         <ClipboardList size={12} /> All
                       </button>
                       <span className={`text-[10px] font-mono px-2 py-0.5 rounded-sm ${theme === 'dark' ? 'bg-white text-black' : 'bg-[#141414] text-[#E4E3E0]'}`}>
-                        {state.tasks.filter(t => t.status === 'completed').length}/{state.tasks.length} DONE
+                        {tasks.filter(t => t.status === 'completed').length}/{tasks.length} DONE
                       </span>
                     </div>
                   </div>
-
+                  
                   <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
-                    {state.tasks.map((task, i) => (
+                    {tasks.map((task, i) => (
                       <button
                         key={task.id}
-                        onClick={() => setState(prev => ({ ...prev, currentTaskIndex: i }))}
-                        className={`w-full text-left p-4 border transition-all relative group ${state.currentTaskIndex === i
-                          ? (theme === 'dark' ? 'bg-white text-black border-white shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]' : 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-[4px_4px_0px_0px_rgba(20,20,20,0.2)]')
-                          : (theme === 'dark' ? 'bg-[#1A1A1A] border-white/10 hover:border-white/30' : 'bg-white border-[#141414]/10 hover:border-[#141414]')
-                          }`}
+                        onClick={() => setCurrentTaskIndex(i)}
+                        className={`w-full text-left p-4 border transition-all relative group ${
+                          currentTaskIndex === i 
+                            ? (theme === 'dark' ? 'bg-white text-black border-white shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]' : 'bg-[#141414] text-[#E4E3E0] border-[#141414] shadow-[4px_4px_0px_0px_rgba(20,20,20,0.2)]')
+                            : (theme === 'dark' ? 'bg-[#1A1A1A] border-white/10 hover:border-white/30' : 'bg-white border-[#141414]/10 hover:border-[#141414]')
+                        }`}
                       >
                         <div className="flex justify-between items-start mb-1">
-                          <span className={`text-[9px] font-mono uppercase tracking-widest ${state.currentTaskIndex === i ? 'opacity-50' : 'opacity-30'}`}>
+                          <span className={`text-[9px] font-mono uppercase tracking-widest ${currentTaskIndex === i ? 'opacity-50' : 'opacity-30'}`}>
                             Phase: {task.phase}
                           </span>
                           {task.status === 'completed' && <CheckCircle2 size={14} className="text-emerald-500" />}
                         </div>
                         <p className="text-sm font-bold leading-tight">{task.title}</p>
-
-                        {state.currentTaskIndex === i && (
-                          <motion.div
+                        
+                        {currentTaskIndex === i && (
+                          <motion.div 
                             layoutId="active-indicator"
                             className={`absolute -left-1 top-1/2 -translate-y-1/2 w-1 h-8 ${theme === 'dark' ? 'bg-black' : 'bg-[#141414]'}`}
                           />
@@ -1439,7 +1275,7 @@ export default function App() {
                 <div className="lg:col-span-8">
                   <AnimatePresence mode="wait">
                     <motion.div
-                      key={state.currentTaskIndex}
+                      key={currentTaskIndex}
                       initial={{ opacity: 0, x: 10 }}
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: -10 }}
@@ -1448,17 +1284,18 @@ export default function App() {
                       <div className="p-8 flex-1">
                         <div className="flex justify-between items-start mb-6">
                           <div>
-                            <h3 className="text-3xl font-bold tracking-tight mb-2">{state.tasks[state.currentTaskIndex].title}</h3>
-                            <p className="text-sm opacity-70 max-w-2xl">{state.tasks[state.currentTaskIndex].description}</p>
+                            <h3 className="text-3xl font-bold tracking-tight mb-2">{tasks[currentTaskIndex].title}</h3>
+                            <p className="text-sm opacity-70 max-w-2xl">{tasks[currentTaskIndex].description}</p>
                           </div>
-                          <button
-                            onClick={() => toggleTaskStatus(state.currentTaskIndex)}
-                            className={`flex items-center gap-2 px-4 py-2 rounded-sm text-xs font-bold uppercase transition-all ${state.tasks[state.currentTaskIndex].status === 'completed'
-                              ? 'bg-emerald-500 text-white'
-                              : (theme === 'dark' ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10')
-                              }`}
+                          <button 
+                            onClick={() => toggleTaskStatus(currentTaskIndex)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-sm text-xs font-bold uppercase transition-all ${
+                              tasks[currentTaskIndex].status === 'completed'
+                                ? 'bg-emerald-500 text-white'
+                                : (theme === 'dark' ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10')
+                            }`}
                           >
-                            {state.tasks[state.currentTaskIndex].status === 'completed' ? (
+                            {tasks[currentTaskIndex].status === 'completed' ? (
                               <><CheckCircle2 size={16} /> Completed</>
                             ) : (
                               'Mark as Done'
@@ -1471,16 +1308,18 @@ export default function App() {
                             <ListChecks size={14} />
                             Generated Prompt
                           </div>
-
+                          
                           <div className="relative group">
-                            <div className={`p-6 rounded-sm font-mono text-sm leading-relaxed whitespace-pre-wrap min-h-[300px] border ${theme === 'dark' ? 'bg-black text-[#E4E3E0] border-white/10' : 'bg-[#141414] text-[#E4E3E0] border-[#141414]'
-                              }`}>
-                              {state.tasks[state.currentTaskIndex].prompt}
+                            <div className={`p-6 rounded-sm font-mono text-sm leading-relaxed whitespace-pre-wrap min-h-[300px] border ${
+                              theme === 'dark' ? 'bg-black text-[#E4E3E0] border-white/10' : 'bg-[#141414] text-[#E4E3E0] border-[#141414]'
+                            }`}>
+                              {tasks[currentTaskIndex].prompt}
                             </div>
-                            <button
-                              onClick={() => copyToClipboard(state.tasks[state.currentTaskIndex].prompt)}
-                              className={`absolute top-4 right-4 p-2 rounded-sm transition-colors flex items-center gap-2 text-[10px] font-bold uppercase ${theme === 'dark' ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-white/10 hover:bg-white/20 text-white'
-                                }`}
+                            <button 
+                              onClick={() => copyToClipboard(tasks[currentTaskIndex].prompt)}
+                              className={`absolute top-4 right-4 p-2 rounded-sm transition-colors flex items-center gap-2 text-[10px] font-bold uppercase ${
+                                theme === 'dark' ? 'bg-white/10 hover:bg-white/20 text-white' : 'bg-white/10 hover:bg-white/20 text-white'
+                              }`}
                             >
                               <Copy size={14} /> Copy Prompt
                             </button>
@@ -1490,29 +1329,30 @@ export default function App() {
 
                       <div className={`border-t p-6 flex justify-between items-center ${theme === 'dark' ? 'border-white/10 bg-white/5' : 'border-[#141414] bg-black/5'}`}>
                         <div className="flex gap-2">
-                          {state.tasks[state.currentTaskIndex].dependencies.length > 0 && (
+                          {tasks[currentTaskIndex].dependencies.length > 0 && (
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] font-bold uppercase opacity-40">Dependencies:</span>
-                              {state.tasks[state.currentTaskIndex].dependencies.map(dep => (
+                              {tasks[currentTaskIndex].dependencies.map(dep => (
                                 <span key={dep} className={`text-[9px] px-1.5 py-0.5 rounded-sm font-mono ${theme === 'dark' ? 'bg-white/10' : 'bg-black/10'}`}>{dep}</span>
                               ))}
                             </div>
                           )}
                         </div>
-
+                        
                         <div className="flex gap-4">
-                          <button
-                            disabled={state.currentTaskIndex === 0}
-                            onClick={() => setState(prev => ({ ...prev, currentTaskIndex: prev.currentTaskIndex - 1 }))}
+                          <button 
+                            disabled={currentTaskIndex === 0}
+                            onClick={() => setCurrentTaskIndex(currentTaskIndex - 1)}
                             className="px-4 py-2 text-xs font-bold uppercase hover:underline disabled:opacity-30"
                           >
                             Previous
                           </button>
-                          <button
-                            disabled={state.currentTaskIndex === state.tasks.length - 1}
-                            onClick={() => setState(prev => ({ ...prev, currentTaskIndex: prev.currentTaskIndex + 1 }))}
-                            className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors disabled:opacity-30 ${theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
-                              }`}
+                          <button 
+                            disabled={currentTaskIndex === tasks.length - 1}
+                            onClick={() => setCurrentTaskIndex(currentTaskIndex + 1)}
+                            className={`px-6 py-2 text-xs font-bold uppercase tracking-widest transition-colors disabled:opacity-30 ${
+                              theme === 'dark' ? 'bg-white text-black hover:bg-white/90' : 'bg-[#141414] text-[#E4E3E0] hover:bg-[#2a2a2a]'
+                            }`}
                           >
                             Next Task
                           </button>
@@ -1531,8 +1371,11 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
             >
-              <RuleEditor
+              <RuleEditor 
                 predefinedRules={RULES}
+                customRules={customRules}
+                onAddCustomRule={(rule) => setCustomRules([...customRules, rule])}
+                onRemoveCustomRule={(index) => setCustomRules(customRules.filter((_, i) => i !== index))}
                 theme={theme}
               />
             </motion.div>
@@ -1559,17 +1402,16 @@ export default function App() {
           border-radius: 10px;
         }
       `}</style>
-      <ChatBot
-        theme={theme}
-        providerConfig={state.providerConfig}
-        projectContext={{
-          docs: state.docs,
-          model: state.model,
-          tasks: state.tasks,
+      <ChatBot 
+        theme={theme} 
+        projectContext={{ 
+          docs: docs, 
+          model: model, 
+          tasks: tasks,
           activeTab,
-          currentTaskIndex: state.currentTaskIndex,
-          currentTask: state.tasks[state.currentTaskIndex]
-        }}
+          currentTaskIndex: currentTaskIndex,
+          currentTask: tasks[currentTaskIndex]
+        }} 
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { SystemModel, UIModule, UIComponent, UserFlow, SmartSuggestion, Contradiction, Provenance, DuplicateContent, Entity, StateDefinition } from "../types";
+import { SystemModel, UIModule, UIComponent, UserFlow, SmartSuggestion, Contradiction, Provenance, DuplicateContent, Entity, StateDefinition, AutoFixAction } from "../types";
 
 export interface Rule {
   id: string;
@@ -15,7 +15,7 @@ export interface Rule {
     impact: "high" | "medium" | "low";
     rationale: string;
   };
-  fix?: (model: SystemModel, target?: any) => void;
+  fix?: (model: SystemModel, target?: any) => AutoFixAction | void;
 }
 
 const ICON_MAP: Record<string, string> = {
@@ -90,6 +90,519 @@ const getSuggestedIcon = (name: string): string => {
 };
 
 export const RULES: Rule[] = [
+  // --- WINDOWS NATIVE UI & UX ---
+  {
+    id: "rule-win-fluent-design",
+    category: "ui/ux",
+    description: "Windows apps should use Fluent Design materials (Mica/Acrylic).",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
+      if (!isWindowsApp) return false;
+      
+      const hasFluent = model.microDetails?.some(d => 
+        d.description.toLowerCase().includes("mica") || 
+        d.description.toLowerCase().includes("acrylic") ||
+        d.description.toLowerCase().includes("fluent")
+      );
+      return !hasFluent;
+    },
+    suggestion: {
+      action: "Apply Fluent Design Materials",
+      description: "Inject Mica or Acrylic backdrop materials into the main Window XAML to match Windows 11 design language.",
+      impact: "high",
+      rationale: "Native Windows apps should feel integrated with the OS by using standard Fluent Design materials."
+    }
+  },
+  {
+    id: "rule-win-ui-thread",
+    category: "logic/performance",
+    description: "Long-running tasks must not block the UI thread.",
+    trigger: { type: "flow", selector: ".*(Fetch|Sync|Download|Process|Load).*" },
+    condition: (model, flow: UserFlow) => {
+      const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
+      if (!isWindowsApp) return false;
+
+      const hasAsync = flow.steps.some(step => 
+        step.action.toLowerCase().includes("async") || 
+        step.action.toLowerCase().includes("task.run") ||
+        step.action.toLowerCase().includes("dispatcher") ||
+        step.action.toLowerCase().includes("dispatcherqueue")
+      );
+      return !hasAsync;
+    },
+    suggestion: {
+      action: "Offload to Background Thread",
+      description: "Wrap heavy data-fetching steps in Task.Run() and ensure UI updates are dispatched back using DispatcherQueue.TryEnqueue() or Dispatcher.Invoke().",
+      impact: "high",
+      rationale: "Blocking the UI thread causes the app to freeze and Windows to mark it as 'Not Responding'."
+    }
+  },
+  {
+    id: "rule-win-mvvm",
+    category: "architecture",
+    description: "UI components should not contain business logic in code-behind.",
+    trigger: { type: "component", selector: ".*(Page|Window|View).*" },
+    condition: (model, component: UIComponent) => {
+      const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
+      if (!isWindowsApp) return false;
+
+      const hasViewModel = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("viewmodel") || 
+        attr.name.toLowerCase().includes("datacontext")
+      );
+      return !hasViewModel;
+    },
+    suggestion: {
+      action: "Implement MVVM Pattern",
+      description: "Automatically generate a ViewModel class inheriting from ObservableObject and bind the XAML controls to it.",
+      impact: "high",
+      rationale: "MVVM is the standard architectural pattern for Windows XAML apps, ensuring separation of concerns and testability."
+    }
+  },
+  {
+    id: "rule-win-accessibility",
+    category: "a11y",
+    description: "Controls must be accessible to Narrator.",
+    trigger: { type: "component", selector: ".*(Button|Input|TextBox|Image).*" },
+    condition: (model, component: UIComponent) => {
+      const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
+      if (!isWindowsApp) return false;
+
+      const hasAutomationProps = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("automationproperties") ||
+        attr.name.toLowerCase().includes("x:name")
+      );
+      return !hasAutomationProps;
+    },
+    suggestion: {
+      action: "Add AutomationProperties",
+      description: "Replace missing web aria-labels with XAML AutomationProperties.Name and AutomationProperties.HelpText.",
+      impact: "high",
+      rationale: "Windows Narrator relies on AutomationProperties to read UI elements to visually impaired users."
+    }
+  },
+  {
+    id: "rule-win-xaml-binding",
+    category: "architecture",
+    description: "XAML Data Binding Validation",
+    trigger: { type: "component", selector: ".*(Page|Window|View|Control|TextBox|ComboBox).*" },
+    condition: (model, component: UIComponent) => {
+      const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
+      if (!isWindowsApp) return false;
+
+      const hasBinding = component.attributes?.some(attr => 
+        attr.value.includes("{Binding") || 
+        attr.value.includes("{x:Bind")
+      );
+      
+      const hasValidation = component.attributes?.some(attr => 
+        attr.value.includes("ValidatesOnDataErrors") || 
+        attr.value.includes("ValidatesOnExceptions") ||
+        attr.name.includes("Validation")
+      );
+      
+      return !!hasBinding && !hasValidation;
+    },
+    suggestion: {
+      action: "Add XAML Binding Validation",
+      description: "Ensure correct x:Bind or Binding usage and add ValidatesOnDataErrors=True or ValidatesOnExceptions=True to Binding definitions.",
+      impact: "medium",
+      rationale: "Proper validation on XAML bindings ensures that UI inputs are correctly validated before updating the ViewModel."
+    }
+  },
+  {
+    id: "rule-win-memory-leak",
+    category: "logic/performance",
+    description: "Event handlers in native apps can cause memory leaks if not detached.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
+      if (!isWindowsApp) return false;
+
+      const hasWeakEvents = model.microDetails?.some(d => 
+        d.description.toLowerCase().includes("weak event") || 
+        d.description.toLowerCase().includes("dispose") ||
+        d.description.toLowerCase().includes("unsubscribe")
+      );
+      return !hasWeakEvents;
+    },
+    suggestion: {
+      action: "Implement Weak Events or IDisposable",
+      description: "Implement Weak Event patterns or auto-generate Dispose() methods for classes subscribing to global events.",
+      impact: "medium",
+      rationale: "Failing to unsubscribe from events in long-lived services prevents Garbage Collection of UI pages."
+    }
+  },
+
+  // --- DESKTOP / IPC SECURITY ---
+  {
+    id: "rule-ipc-context-isolation",
+    category: "desktop/ipc",
+    description: "contextIsolation must be enabled.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasIsolation = model.microDetails?.some(d => d.description.toLowerCase().includes("contextisolation: true") || d.description.toLowerCase().includes("contextisolation"));
+      return !hasIsolation;
+    },
+    suggestion: {
+      action: "Enable contextIsolation",
+      description: "Ensure contextIsolation is set to true in webPreferences to prevent renderer processes from accessing Node.js APIs.",
+      impact: "high",
+      rationale: "Disabling context isolation is a severe security risk that allows remote code execution (RCE) if the renderer is compromised."
+    },
+    fix: (model): AutoFixAction => ({
+      id: `fix-ipc-context-isolation`,
+      type: 'update',
+      target: 'webPreferences',
+      location: 'config.webPreferences',
+      newValue: { contextIsolation: true },
+      rationale: 'Ensure contextIsolation is set to true in webPreferences.',
+      riskLevel: 'moderate'
+    })
+  },
+  {
+    id: "rule-ipc-node-integration-disabled",
+    category: "desktop/ipc",
+    description: "nodeIntegration must be false in renderer.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasNodeIntegration = model.microDetails?.some(d => d.description.toLowerCase().includes("nodeintegration: true"));
+      return hasNodeIntegration;
+    },
+    suggestion: {
+      action: "Disable nodeIntegration",
+      description: "Set nodeIntegration to false in webPreferences.",
+      impact: "high",
+      rationale: "Enabling nodeIntegration gives the renderer full access to Node.js, making XSS attacks instantly fatal."
+    },
+    fix: (model): AutoFixAction => ({
+      id: `fix-ipc-node-integration`,
+      type: 'update',
+      target: 'webPreferences',
+      location: 'config.webPreferences',
+      newValue: { nodeIntegration: false },
+      rationale: 'Set nodeIntegration to false in webPreferences.',
+      riskLevel: 'risky'
+    })
+  },
+  
+  // --- DESKTOP / WINDOW MANAGEMENT ---
+  {
+    id: "rule-window-single-instance-lock",
+    category: "desktop/window",
+    description: "Enforce single instance lock for desktop apps.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasSingleInstance = model.microDetails?.some(d => d.description.toLowerCase().includes("single instance") || d.description.toLowerCase().includes("requestsingleinstancelock"));
+      return !hasSingleInstance;
+    },
+    suggestion: {
+      action: "Implement Single Instance Lock",
+      description: "Ensure only one instance of the application can run at a time, focusing the existing window if a second instance is launched.",
+      impact: "medium",
+      rationale: "Prevents race conditions, file lock issues, and confusing UX caused by multiple instances of the same app."
+    },
+    fix: (model): AutoFixAction => ({
+      id: `fix-window-single-instance`,
+      type: 'insert',
+      target: 'app',
+      location: 'main.ts',
+      newValue: 'app.requestSingleInstanceLock()',
+      rationale: 'Add app.requestSingleInstanceLock()',
+      riskLevel: 'safe'
+    })
+  },
+  {
+    id: "rule-window-safe-close-confirmation",
+    category: "desktop/window",
+    description: "Prompt for confirmation before closing if there are unsaved changes.",
+    trigger: { type: "flow", selector: ".*(Close|Exit|Quit).*" },
+    condition: (model, flow: UserFlow) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasConfirmation = flow.steps.some(s => s.action.toLowerCase().includes("confirm") || s.action.toLowerCase().includes("prompt") || s.action.toLowerCase().includes("unsaved"));
+      return !hasConfirmation;
+    },
+    suggestion: {
+      action: "Add Unsaved Changes Prompt",
+      description: "Intercept the window close event and prompt the user if there is unsaved state.",
+      impact: "medium",
+      rationale: "Prevents accidental data loss when the user closes the application window."
+    },
+    fix: (model, flow): AutoFixAction => ({
+      id: `fix-window-safe-close`,
+      type: 'update',
+      target: flow?.name || 'close-event',
+      location: `flows.${flow?.name || 'close'}`,
+      newValue: { intercept: true, dialog: 'confirm' },
+      rationale: 'Intercept close event -> confirm dialog',
+      riskLevel: 'safe'
+    })
+  },
+
+  // --- DESKTOP / FILE SYSTEM SAFETY ---
+  {
+    id: "rule-fs-no-path-traversal",
+    category: "desktop/fs",
+    description: "Prevent path traversal vulnerabilities in file system operations.",
+    trigger: { type: "flow", selector: ".*(File|Save|Load|Read|Write).*" },
+    condition: (model, flow: UserFlow) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasValidation = flow.steps.some(s => s.action.toLowerCase().includes("validate path") || s.action.toLowerCase().includes("normalize") || s.action.toLowerCase().includes("sanitize"));
+      return !hasValidation;
+    },
+    suggestion: {
+      action: "Normalize and Validate File Paths",
+      description: "Ensure all file paths derived from user input or IPC are normalized and checked against a safe directory whitelist.",
+      impact: "high",
+      rationale: "Path traversal allows attackers to read or overwrite arbitrary files on the user's system."
+    },
+    fix: (model, flow): AutoFixAction => ({
+      id: `fix-fs-path-traversal`,
+      type: 'update',
+      target: flow?.name || 'fs-operation',
+      location: `flows.${flow?.name || 'fs'}`,
+      newValue: { validatePath: true, rejectOutsideRoot: true },
+      rationale: 'Reject paths outside allowed root',
+      riskLevel: 'safe'
+    })
+  },
+  {
+    id: "rule-fs-atomic-write",
+    category: "desktop/fs",
+    description: "Use atomic writes for critical files.",
+    trigger: { type: "flow", selector: ".*(Save|Write|Export).*" },
+    condition: (model, flow: UserFlow) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasAtomic = flow.steps.some(s => s.action.toLowerCase().includes("atomic") || s.action.toLowerCase().includes("temp file") || s.action.toLowerCase().includes("rename"));
+      return !hasAtomic;
+    },
+    suggestion: {
+      action: "Implement Atomic File Writes",
+      description: "Write data to a temporary file first, then rename it to the target filename to prevent corruption during crashes.",
+      impact: "high",
+      rationale: "Directly overwriting files can lead to data corruption if the application crashes or loses power mid-write."
+    },
+    fix: (model, flow): AutoFixAction => ({
+      id: `fix-fs-atomic-write`,
+      type: 'update',
+      target: flow?.name || 'fs-write',
+      location: `flows.${flow?.name || 'fs'}`,
+      newValue: { atomicWrite: true, tempFile: true },
+      rationale: 'Write temp -> rename',
+      riskLevel: 'safe'
+    })
+  },
+
+  // --- DESKTOP / AUTO-UPDATE SAFETY ---
+  {
+    id: "rule-update-signature-verification",
+    category: "desktop/update",
+    description: "Verify signatures of auto-update payloads.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasUpdates = model.microDetails?.some(d => d.description.toLowerCase().includes("auto-update") || d.description.toLowerCase().includes("updater"));
+      if (!hasUpdates) return false;
+      const hasVerification = model.microDetails?.some(d => d.description.toLowerCase().includes("signature") || d.description.toLowerCase().includes("verify") || d.description.toLowerCase().includes("hash"));
+      return !hasVerification;
+    },
+    suggestion: {
+      action: "Enforce Update Signature Verification",
+      description: "Ensure the auto-updater verifies the cryptographic signature or hash of the downloaded package before installing.",
+      impact: "high",
+      rationale: "Without signature verification, attackers can perform Man-in-the-Middle (MitM) attacks to install malware via the updater."
+    },
+    fix: (model): AutoFixAction => ({
+      id: `fix-update-signature`,
+      type: 'update',
+      target: 'updater',
+      location: 'config.updater',
+      newValue: { verifySignature: true },
+      rationale: 'Enable signature validation in updater',
+      riskLevel: 'safe'
+    })
+  },
+
+  // --- DESKTOP / CRASH RECOVERY & STABILITY ---
+  {
+    id: "rule-crash-auto-save",
+    category: "desktop/crash",
+    description: "Implement auto-save to prevent data loss on crash.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasAutoSave = model.microDetails?.some(d => d.description.toLowerCase().includes("auto-save") || d.description.toLowerCase().includes("autosave") || d.description.toLowerCase().includes("periodic save"));
+      return !hasAutoSave;
+    },
+    suggestion: {
+      action: "Add Auto-Save Mechanism",
+      description: "Periodically save the application state or document to a temporary recovery file.",
+      impact: "medium",
+      rationale: "Desktop apps are expected to recover gracefully from crashes without losing hours of user work."
+    },
+    fix: (model): AutoFixAction => ({
+      id: `fix-crash-auto-save`,
+      type: 'insert',
+      target: 'state',
+      location: 'global',
+      newValue: { autoSave: true, interval: 300000 },
+      rationale: 'Snapshot model before risky operations',
+      riskLevel: 'safe'
+    })
+  },
+
+  // --- DESKTOP / PERFORMANCE & RESOURCE ---
+  {
+    id: "rule-perf-worker-pool-limit",
+    category: "desktop/perf",
+    description: "Limit the size of background worker pools.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasWorkers = model.microDetails?.some(d => d.description.toLowerCase().includes("worker") || d.description.toLowerCase().includes("thread pool"));
+      if (!hasWorkers) return false;
+      const hasLimit = model.microDetails?.some(d => d.description.toLowerCase().includes("limit") || d.description.toLowerCase().includes("max threads") || d.description.toLowerCase().includes("pool size"));
+      return !hasLimit;
+    },
+    suggestion: {
+      action: "Cap Worker Pool Size",
+      description: "Limit the number of concurrent background workers to the number of CPU cores to prevent resource starvation.",
+      impact: "medium",
+      rationale: "Spawning too many threads can freeze the host OS and degrade overall system performance."
+    },
+    fix: (model): AutoFixAction => ({
+      id: `fix-perf-worker-pool`,
+      type: 'update',
+      target: 'workerPool',
+      location: 'config.workers',
+      newValue: { limit: 'os.cpus().length' },
+      rationale: 'Limit workers to CPU count',
+      riskLevel: 'safe'
+    })
+  },
+
+  // --- DESKTOP / SECURITY HARDENING ---
+  {
+    id: "rule-secure-csp-required",
+    category: "desktop/secure",
+    description: "Enforce a strict Content Security Policy (CSP).",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasCsp = model.microDetails?.some(d => d.description.toLowerCase().includes("csp") || d.description.toLowerCase().includes("content-security-policy"));
+      return !hasCsp;
+    },
+    suggestion: {
+      action: "Add Strict CSP",
+      description: "Define a strict Content-Security-Policy header or meta tag to restrict resource loading.",
+      impact: "high",
+      rationale: "CSP is a critical defense-in-depth measure against XSS and data exfiltration in HTML-based desktop apps."
+    },
+    fix: (model): AutoFixAction => ({
+      id: `fix-secure-csp`,
+      type: 'insert',
+      target: 'headers',
+      location: 'main.ts',
+      newValue: { 'Content-Security-Policy': "default-src 'self'" },
+      rationale: 'Inject strict CSP header',
+      riskLevel: 'moderate'
+    })
+  },
+
+  // --- DESKTOP / INSTALLER & DISTRIBUTION ---
+  {
+    id: "rule-installer-code-sign-required",
+    category: "desktop/installer",
+    description: "Code signing is required for desktop installers.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasCodeSign = model.microDetails?.some(d => d.description.toLowerCase().includes("code sign") || d.description.toLowerCase().includes("certificate") || d.description.toLowerCase().includes("authenticode"));
+      return !hasCodeSign;
+    },
+    suggestion: {
+      action: "Configure Code Signing",
+      description: "Ensure the build pipeline includes steps to sign the executable and installer with a valid developer certificate.",
+      impact: "high",
+      rationale: "Unsigned applications trigger severe OS warnings (e.g., Windows SmartScreen) and are often blocked by antivirus software."
+    }
+  },
+
+  // --- DESKTOP / OBSERVABILITY ---
+  {
+    id: "rule-obs-structured-logging",
+    category: "desktop/obs",
+    description: "Use structured logging for desktop apps.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasLogging = model.microDetails?.some(d => d.description.toLowerCase().includes("log") || d.description.toLowerCase().includes("winston") || d.description.toLowerCase().includes("serilog"));
+      if (!hasLogging) return false;
+      const hasStructured = model.microDetails?.some(d => d.description.toLowerCase().includes("structured") || d.description.toLowerCase().includes("json"));
+      return !hasStructured;
+    },
+    suggestion: {
+      action: "Implement Structured Logging",
+      description: "Configure the logger to output structured JSON logs instead of plain text.",
+      impact: "low",
+      rationale: "Structured logs are easier to parse, query, and analyze when users submit crash reports or diagnostics."
+    },
+    fix: (model): AutoFixAction => ({
+      id: `fix-obs-structured-logging`,
+      type: 'update',
+      target: 'logger',
+      location: 'config.logger',
+      newValue: { format: 'json', structured: true },
+      rationale: 'Configure the logger to output structured JSON logs.',
+      riskLevel: 'safe'
+    })
+  },
+
+  // --- DESKTOP / STATE & DATA INTEGRITY ---
+  {
+    id: "rule-state-transactional-auto-fix",
+    category: "desktop/state",
+    description: "Use transactional state updates for complex operations.",
+    trigger: { type: "flow", selector: ".*(Update|Modify|Process|Batch).*" },
+    condition: (model, flow: UserFlow) => {
+      const isDesktop = model.detectedFrameworks?.some(f => ['electron', 'tauri', 'winui3', 'wpf', 'maui'].includes(f.name));
+      if (!isDesktop) return false;
+      const hasTransaction = flow.steps.some(s => s.action.toLowerCase().includes("transaction") || s.action.toLowerCase().includes("rollback") || s.action.toLowerCase().includes("commit"));
+      return !hasTransaction;
+    },
+    suggestion: {
+      action: "Use Transactional State Updates",
+      description: "Wrap multi-step state or file modifications in a transaction that can be rolled back on failure.",
+      impact: "medium",
+      rationale: "Prevents the application from entering an inconsistent or corrupted state if an operation fails halfway through."
+    },
+    fix: (model, flow): AutoFixAction => ({
+      id: `fix-state-transactional`,
+      type: 'update',
+      target: flow?.name || 'state-update',
+      location: `flows.${flow?.name || 'state'}`,
+      newValue: { useTransaction: true, rollbackOnFailure: true },
+      rationale: 'Introduce patch-based commit layer',
+      riskLevel: 'risky'
+    })
+  },
+
   // --- UI COMPONENTS & VISUALS ---
   {
     id: "rule-icon-nav-item",
@@ -97,8 +610,8 @@ export const RULES: Rule[] = [
     description: "Every navigation item should have an associated icon.",
     trigger: { type: "component", selector: ".*(Nav|Menu|Sidebar).*" },
     condition: (model, component: UIComponent) => {
-      const hasIcon = component.attributes?.some(attr =>
-        attr.name.toLowerCase().includes("icon") ||
+      const hasIcon = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("icon") || 
         attr.value.toLowerCase().includes("icon")
       );
       return !hasIcon;
@@ -109,10 +622,20 @@ export const RULES: Rule[] = [
       impact: "medium",
       rationale: "Icons improve scannability and user experience in navigation menus."
     },
-    fix: (model, component: UIComponent) => {
-      if (!component.attributes) component.attributes = [];
+    fix: (model, component: UIComponent): AutoFixAction => {
       const icon = getSuggestedIcon(component.name);
-      component.attributes.push({ name: "icon", value: icon });
+      return {
+        id: `fix-icon-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "icon", value: icon }]
+        },
+        rationale: `Added standard icon "${icon}" for ${component.name} based on naming convention`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -121,8 +644,8 @@ export const RULES: Rule[] = [
     description: "Buttons with common actions (save, delete, edit) should use standard icons.",
     trigger: { type: "component", selector: ".*(Save|Delete|Remove|Edit|Pencil|Trash|Plus|Add|Cancel|Close|Search|Filter|Refresh).*" },
     condition: (model, component: UIComponent) => {
-      const hasIcon = component.attributes?.some(attr =>
-        attr.name.toLowerCase().includes("icon") ||
+      const hasIcon = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("icon") || 
         attr.value.toLowerCase().includes("icon")
       );
       return !hasIcon;
@@ -133,10 +656,20 @@ export const RULES: Rule[] = [
       impact: "medium",
       rationale: "Users expect consistent iconography for common actions, reducing cognitive load."
     },
-    fix: (model, component: UIComponent) => {
-      if (!component.attributes) component.attributes = [];
+    fix: (model, component: UIComponent): AutoFixAction => {
       const icon = getSuggestedIcon(component.name);
-      component.attributes.push({ name: "icon", value: icon });
+      return {
+        id: `fix-icon-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "icon", value: icon }]
+        },
+        rationale: `Added standard icon "${icon}" for ${component.name} based on naming convention`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -156,9 +689,19 @@ export const RULES: Rule[] = [
       impact: "medium",
       rationale: "Icon-only buttons can be ambiguous; tooltips provide necessary context for users."
     },
-    fix: (model, component: UIComponent) => {
-      if (!component.attributes) component.attributes = [];
-      component.attributes.push({ name: "tooltip", value: component.name });
+    fix: (model, component: UIComponent): AutoFixAction => {
+      return {
+        id: `fix-tooltip-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "tooltip", value: component.name }]
+        },
+        rationale: `Added tooltip for icon-only button ${component.name}`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -180,13 +723,47 @@ export const RULES: Rule[] = [
 
   // --- INTERACTION & FEEDBACK ---
   {
+    id: "rule-micro-input-validation",
+    category: "ui/feedback",
+    description: "Form inputs should have inline validation feedback.",
+    trigger: { type: "component", selector: ".*(Input|TextField|EmailField|PasswordField).*" },
+    condition: (model, component: UIComponent) => {
+      const hasValidation = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("error") || 
+        attr.name.toLowerCase().includes("validation") ||
+        attr.name.toLowerCase().includes("helper")
+      );
+      return !hasValidation;
+    },
+    suggestion: {
+      action: "Add Inline Validation",
+      description: "Provide clear inline error messages for this input field.",
+      impact: "medium",
+      rationale: "Inline validation helps users correct errors immediately without waiting for form submission."
+    },
+    fix: (model, component: UIComponent): AutoFixAction => {
+      return {
+        id: `fix-validation-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "errorText", value: "Validation message" }]
+        },
+        rationale: `Added errorText attribute to ${component.name} for inline validation feedback`,
+        riskLevel: 'safe'
+      };
+    }
+  },
+  {
     id: "rule-confirm-destructive",
     category: "ui/feedback",
     description: "Destructive actions must trigger a confirmation dialog.",
     trigger: { type: "flow", selector: ".*(Delete|Remove|Destroy|Reset|Clear|Irreversible).*" },
     condition: (model, flow: UserFlow) => {
-      const hasConfirmation = flow.steps.some(step =>
-        step.action.toLowerCase().includes("confirm") ||
+      const hasConfirmation = flow.steps.some(step => 
+        step.action.toLowerCase().includes("confirm") || 
         step.expectedResult.toLowerCase().includes("dialog") ||
         step.expectedResult.toLowerCase().includes("modal")
       );
@@ -205,8 +782,8 @@ export const RULES: Rule[] = [
     description: "Form submissions should show success/error feedback.",
     trigger: { type: "flow", selector: ".*(Submit|Save|Create|Update|Post).*" },
     condition: (model, flow: UserFlow) => {
-      const hasFeedback = flow.steps.some(step =>
-        step.expectedResult.toLowerCase().includes("toast") ||
+      const hasFeedback = flow.steps.some(step => 
+        step.expectedResult.toLowerCase().includes("toast") || 
         step.expectedResult.toLowerCase().includes("notification") ||
         step.expectedResult.toLowerCase().includes("success") ||
         step.expectedResult.toLowerCase().includes("feedback")
@@ -256,13 +833,46 @@ export const RULES: Rule[] = [
 
   // --- LOADING STATES ---
   {
+    id: "rule-micro-autofocus",
+    category: "ui/ux",
+    description: "Search bars and primary forms should auto-focus on load.",
+    trigger: { type: "component", selector: ".*(Search|LoginForm|SignupForm).*" },
+    condition: (model, component: UIComponent) => {
+      const hasAutoFocus = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("autofocus") || 
+        attr.name.toLowerCase().includes("focus")
+      );
+      return !hasAutoFocus;
+    },
+    suggestion: {
+      action: "Add Auto-Focus",
+      description: "Automatically focus the primary input field when this component loads.",
+      impact: "low",
+      rationale: "Auto-focusing the primary input saves users a click and speeds up interaction."
+    },
+    fix: (model, component: UIComponent): AutoFixAction => {
+      return {
+        id: `fix-autofocus-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "autoFocus", value: "true" }]
+        },
+        rationale: `Added autoFocus attribute to ${component.name} to improve UX`,
+        riskLevel: 'safe'
+      };
+    }
+  },
+  {
     id: "rule-loading-state",
     category: "ui/loading",
     description: "Data-fetching components should have skeleton screens or spinners.",
     trigger: { type: "component", selector: ".*(List|Table|Grid|Feed|Dashboard|Chart).*" },
     condition: (model, component: UIComponent) => {
-      const hasLoadingState = component.attributes?.some(attr =>
-        attr.name.toLowerCase().includes("loading") ||
+      const hasLoadingState = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("loading") || 
         attr.name.toLowerCase().includes("skeleton")
       );
       return !hasLoadingState;
@@ -273,9 +883,19 @@ export const RULES: Rule[] = [
       impact: "medium",
       rationale: "Skeleton screens reduce user frustration by showing that content is being loaded."
     },
-    fix: (model, component: UIComponent) => {
-      if (!component.attributes) component.attributes = [];
-      component.attributes.push({ name: "loading", value: "skeleton" });
+    fix: (model, component: UIComponent): AutoFixAction => {
+      return {
+        id: `fix-loading-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "loading", value: "skeleton" }]
+        },
+        rationale: `Added skeleton loading state for data component ${component.name}`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -284,8 +904,8 @@ export const RULES: Rule[] = [
     description: "Lists and grids should have an empty state illustration.",
     trigger: { type: "component", selector: ".*(List|Table|Grid|Feed).*" },
     condition: (model, component: UIComponent) => {
-      const hasEmptyState = component.children?.some(child =>
-        child.name.toLowerCase().includes("empty") ||
+      const hasEmptyState = component.children?.some(child => 
+        child.name.toLowerCase().includes("empty") || 
         child.name.toLowerCase().includes("placeholder")
       );
       return !hasEmptyState;
@@ -305,8 +925,8 @@ export const RULES: Rule[] = [
     description: "User authentication attempts should be logged.",
     trigger: { type: "flow", selector: ".*(Login|Signup|Auth|SignOut|Password).*" },
     condition: (model, flow: UserFlow) => {
-      const hasLogging = flow.steps.some(step =>
-        step.action.toLowerCase().includes("log") ||
+      const hasLogging = flow.steps.some(step => 
+        step.action.toLowerCase().includes("log") || 
         step.stateTransition?.toLowerCase().includes("audit")
       );
       return !hasLogging;
@@ -324,8 +944,8 @@ export const RULES: Rule[] = [
     description: "Critical API errors should be reported to a monitoring service.",
     trigger: { type: "flow", selector: ".*(API|Fetch|Submit|Post).*" },
     condition: (model, flow: UserFlow) => {
-      const hasErrorReporting = flow.errorPaths?.some(path =>
-        path.recovery.toLowerCase().includes("report") ||
+      const hasErrorReporting = flow.errorPaths?.some(path => 
+        path.recovery.toLowerCase().includes("report") || 
         path.recovery.toLowerCase().includes("sentry") ||
         path.recovery.toLowerCase().includes("log")
       );
@@ -357,13 +977,79 @@ export const RULES: Rule[] = [
 
   // --- ACCESSIBILITY (A11Y) ---
   {
+    id: "rule-micro-focus-trap",
+    category: "a11y",
+    description: "Modals and overlays must trap focus.",
+    trigger: { type: "component", selector: ".*(Modal|Dialog|Drawer|Popover|Overlay).*" },
+    condition: (model, component: UIComponent) => {
+      const hasFocusTrap = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("focus") || 
+        attr.name.toLowerCase().includes("trap")
+      );
+      return !hasFocusTrap;
+    },
+    suggestion: {
+      action: "Implement Focus Trap",
+      description: "Ensure keyboard focus remains within the modal while it is open.",
+      impact: "high",
+      rationale: "Focus trapping is essential for keyboard and screen reader users to not interact with background content."
+    },
+    fix: (model, component: UIComponent): AutoFixAction => {
+      return {
+        id: `fix-focus-trap-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "trapFocus", value: "true" }]
+        },
+        rationale: `Added trapFocus attribute to ${component.name} for accessibility`,
+        riskLevel: 'safe'
+      };
+    }
+  },
+  {
+    id: "rule-micro-keyboard-esc",
+    category: "a11y",
+    description: "Overlays should be dismissible with the Escape key.",
+    trigger: { type: "component", selector: ".*(Modal|Dialog|Drawer|Popover|Overlay).*" },
+    condition: (model, component: UIComponent) => {
+      const hasEsc = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("esc") || 
+        attr.name.toLowerCase().includes("keyboard")
+      );
+      return !hasEsc;
+    },
+    suggestion: {
+      action: "Add Escape Key Support",
+      description: "Allow users to close this overlay using the Escape key.",
+      impact: "medium",
+      rationale: "Keyboard users expect to be able to dismiss overlays without finding a close button."
+    },
+    fix: (model, component: UIComponent): AutoFixAction => {
+      return {
+        id: `fix-esc-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "closeOnEsc", value: "true" }]
+        },
+        rationale: `Added closeOnEsc attribute to ${component.name} for keyboard accessibility`,
+        riskLevel: 'safe'
+      };
+    }
+  },
+  {
     id: "rule-a11y-labels",
     category: "a11y",
     description: "All form inputs must have associated labels or aria-labels.",
     trigger: { type: "component", selector: ".*(Input|Select|Textarea|Field|Checkbox|Radio).*" },
     condition: (model, component: UIComponent) => {
-      const hasLabel = component.attributes?.some(attr =>
-        attr.name.toLowerCase() === "label" ||
+      const hasLabel = component.attributes?.some(attr => 
+        attr.name.toLowerCase() === "label" || 
         attr.name.toLowerCase().includes("aria-label")
       );
       return !hasLabel;
@@ -374,9 +1060,19 @@ export const RULES: Rule[] = [
       impact: "high",
       rationale: "Proper labeling is essential for users who rely on assistive technologies."
     },
-    fix: (model, component: UIComponent) => {
-      if (!component.attributes) component.attributes = [];
-      component.attributes.push({ name: "aria-label", value: component.name });
+    fix: (model, component: UIComponent): AutoFixAction => {
+      return {
+        id: `fix-aria-label-${component.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: component.name,
+        location: `components.${component.name}`,
+        newValue: {
+          ...component,
+          attributes: [...(component.attributes || []), { name: "aria-label", value: component.name }]
+        },
+        rationale: `Added aria-label for accessibility on ${component.name}`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -385,8 +1081,8 @@ export const RULES: Rule[] = [
     description: "All images must have alt text.",
     trigger: { type: "component", selector: ".*(Image|Img|Avatar|Logo|Icon).*" },
     condition: (model, component: UIComponent) => {
-      const hasAlt = component.attributes?.some(attr =>
-        attr.name.toLowerCase() === "alt" ||
+      const hasAlt = component.attributes?.some(attr => 
+        attr.name.toLowerCase() === "alt" || 
         attr.name.toLowerCase() === "aria-label"
       );
       return !hasAlt;
@@ -455,8 +1151,8 @@ export const RULES: Rule[] = [
     description: "Every public page should have a title and meta description.",
     trigger: { type: "component", selector: ".*(Page|View|Screen).*" },
     condition: (model, component: UIComponent) => {
-      const hasMeta = component.attributes?.some(attr =>
-        attr.name.toLowerCase().includes("title") ||
+      const hasMeta = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("title") || 
         attr.name.toLowerCase().includes("meta")
       );
       return !hasMeta;
@@ -474,8 +1170,8 @@ export const RULES: Rule[] = [
     description: "Public pages should have Open Graph tags for social sharing.",
     trigger: { type: "component", selector: ".*(Page|View|Screen).*" },
     condition: (model, component: UIComponent) => {
-      const hasOG = component.attributes?.some(attr =>
-        attr.name.toLowerCase().includes("og:") ||
+      const hasOG = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("og:") || 
         attr.name.toLowerCase().includes("twitter:")
       );
       return !hasOG;
@@ -527,8 +1223,8 @@ export const RULES: Rule[] = [
     description: "Input validation must be present on all API routes.",
     trigger: { type: "flow", selector: ".*(API|Post|Put|Patch).*" },
     condition: (model, flow: UserFlow) => {
-      const hasValidation = flow.steps.some(step =>
-        step.action.toLowerCase().includes("validate") ||
+      const hasValidation = flow.steps.some(step => 
+        step.action.toLowerCase().includes("validate") || 
         step.action.toLowerCase().includes("check") ||
         step.action.toLowerCase().includes("verify") ||
         step.action.toLowerCase().includes("schema")
@@ -540,6 +1236,26 @@ export const RULES: Rule[] = [
       description: "Implement server-side schema validation (e.g., Zod, Joi) for this API flow.",
       impact: "high",
       rationale: "Server-side validation is the first line of defense against malicious or malformed data."
+    },
+    fix: (model, flow: UserFlow): AutoFixAction => {
+      const newSteps = [...flow.steps];
+      newSteps.unshift({
+        action: "Validate input data",
+        expectedResult: "Data matches schema, else 400 Bad Request",
+        stateTransition: "Validation"
+      });
+      return {
+        id: `fix-validation-${flow.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: flow.name,
+        location: `flows.${flow.name}`,
+        newValue: {
+          ...flow,
+          steps: newSteps
+        },
+        rationale: `Added input validation step to ${flow.name}`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -548,8 +1264,8 @@ export const RULES: Rule[] = [
     description: "API endpoints should have rate limiting.",
     trigger: { type: "flow", selector: ".*(API|Fetch|Submit|Post).*" },
     condition: (model, flow: UserFlow) => {
-      const hasRateLimit = flow.steps.some(step =>
-        step.action.toLowerCase().includes("rate limit") ||
+      const hasRateLimit = flow.steps.some(step => 
+        step.action.toLowerCase().includes("rate limit") || 
         step.action.toLowerCase().includes("throttle")
       );
       return !hasRateLimit;
@@ -567,8 +1283,8 @@ export const RULES: Rule[] = [
     description: "Check permissions on every request.",
     trigger: { type: "flow", selector: ".*(API|Fetch|Submit|Post|Put|Delete).*" },
     condition: (model, flow: UserFlow) => {
-      const hasAuth = flow.steps.some(step =>
-        step.action.toLowerCase().includes("auth") ||
+      const hasAuth = flow.steps.some(step => 
+        step.action.toLowerCase().includes("auth") || 
         step.action.toLowerCase().includes("permission") ||
         step.action.toLowerCase().includes("authorize")
       );
@@ -579,6 +1295,28 @@ export const RULES: Rule[] = [
       description: "Verify user permissions (RBAC/ABAC) before processing this API request.",
       impact: "high",
       rationale: "Ensures that users can only access or modify data they are authorized to."
+    },
+    fix: (model, flow: UserFlow): AutoFixAction => {
+      const newSteps = [...flow.steps];
+      // Find the first step that isn't validation to insert auth check
+      const insertIndex = newSteps.findIndex(s => !s.action.toLowerCase().includes('validate'));
+      newSteps.splice(insertIndex >= 0 ? insertIndex : 0, 0, {
+        action: "Check user authorization",
+        expectedResult: "User has required permissions, else 403 Forbidden",
+        stateTransition: "Authorization"
+      });
+      return {
+        id: `fix-auth-${flow.name.toLowerCase().replace(/\s+/g, '-')}`,
+        type: 'update',
+        target: flow.name,
+        location: `flows.${flow.name}`,
+        newValue: {
+          ...flow,
+          steps: newSteps
+        },
+        rationale: `Added authorization check step to ${flow.name}`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -598,6 +1336,90 @@ export const RULES: Rule[] = [
     }
   },
 
+  // --- SECURITY ---
+  {
+    id: "rule-security-serialization",
+    category: "logic/security",
+    description: "Avoid insecure data serialization formats.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      return model.microDetails?.some(d => 
+        d.description.toLowerCase().includes("binaryformatter") || 
+        d.description.toLowerCase().includes("eval(") ||
+        d.description.toLowerCase().includes("innerhtml")
+      ) || false;
+    },
+    suggestion: {
+      action: "Remove Insecure Serialization/Execution",
+      description: "Replace insecure APIs like BinaryFormatter, eval(), or innerHTML with safe alternatives (e.g., JSON.parse, textContent).",
+      impact: "high",
+      rationale: "Insecure serialization and dynamic execution are major vectors for Remote Code Execution (RCE) and XSS attacks."
+    }
+  },
+  {
+    id: "rule-security-auth-middleware",
+    category: "logic/security",
+    description: "Authentication middleware must be globally applied or explicitly bypassed.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const hasAuth = model.detectedFrameworks?.some(f => ['nextauth', 'clerk', 'auth0', 'lucia'].includes(f.name));
+      if (!hasAuth) return false;
+
+      const hasMiddleware = model.microDetails?.some(d => 
+        d.description.toLowerCase().includes("middleware") || 
+        d.description.toLowerCase().includes("guard") ||
+        d.description.toLowerCase().includes("interceptor")
+      );
+      return !hasMiddleware;
+    },
+    suggestion: {
+      action: "Configure Auth Middleware",
+      description: "Implement global authentication middleware to protect routes by default, requiring explicit opt-out for public routes.",
+      impact: "high",
+      rationale: "Opt-in security often leads to accidentally exposed endpoints. Global middleware with opt-out is much safer."
+    }
+  },
+
+  // --- FRAMEWORK OPTIMIZATIONS ---
+  {
+    id: "rule-react-memo",
+    category: "logic/performance",
+    description: "Use React.memo for frequently re-rendered components.",
+    trigger: { type: "component", selector: ".*(List|Grid|Table|Row|Item|Card).*" },
+    condition: (model, component: UIComponent) => {
+      const isReact = model.detectedFrameworks?.some(f => ['react', 'nextjs', 'remix'].includes(f.name));
+      if (!isReact) return false;
+
+      const hasMemo = component.attributes?.some(attr => attr.name.toLowerCase().includes("memo"));
+      return !hasMemo;
+    },
+    suggestion: {
+      action: "Memoize Component",
+      description: "Wrap this component in React.memo() to prevent unnecessary re-renders, especially if it's part of a large list.",
+      impact: "medium",
+      rationale: "Frequent re-renders of list items or complex UI elements can severely degrade React performance."
+    }
+  },
+  {
+    id: "rule-state-management-pattern",
+    category: "architecture",
+    description: "Enforce state management library patterns.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const hasRedux = model.detectedFrameworks?.some(f => f.name === 'redux');
+      if (!hasRedux) return false;
+
+      const hasSlices = model.microDetails?.some(d => d.description.toLowerCase().includes("slice") || d.description.toLowerCase().includes("reducer"));
+      return !hasSlices;
+    },
+    suggestion: {
+      action: "Use Redux Toolkit Slices",
+      description: "Structure your Redux store using Redux Toolkit 'slices' instead of legacy action/reducer patterns.",
+      impact: "medium",
+      rationale: "Redux Toolkit is the modern, recommended approach for Redux, reducing boilerplate and preventing mutation bugs."
+    }
+  },
+
   // --- DATABASE ---
   {
     id: "rule-db-soft-delete",
@@ -605,8 +1427,8 @@ export const RULES: Rule[] = [
     description: "Soft deletes should be used instead of hard deletes.",
     trigger: { type: "entity", selector: ".*" },
     condition: (model, entity: any) => {
-      const hasDeletedAt = entity.properties?.some((p: any) =>
-        p.name?.toLowerCase().includes("deleted") ||
+      const hasDeletedAt = entity.properties?.some((p: any) => 
+        p.name?.toLowerCase().includes("deleted") || 
         p.name?.toLowerCase() === "is_active"
       );
       return !hasDeletedAt;
@@ -616,6 +1438,20 @@ export const RULES: Rule[] = [
       description: "Add a 'deleted_at' timestamp to this entity instead of performing hard deletes.",
       impact: "medium",
       rationale: "Soft deletes allow for data recovery and maintain audit trails."
+    },
+    fix: (model, entity: any): AutoFixAction => {
+      return {
+        id: `fix-soft-delete-${entity.name.toLowerCase()}`,
+        type: 'update',
+        target: entity.name,
+        location: `entities.${entity.name}`,
+        newValue: {
+          ...entity,
+          properties: [...(entity.properties || []), { name: "deleted_at", type: "timestamp", description: "Soft delete timestamp" }]
+        },
+        rationale: `Added deleted_at timestamp to ${entity.name} for soft deletes`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -640,8 +1476,8 @@ export const RULES: Rule[] = [
     description: "Include created_at and updated_at for every table.",
     trigger: { type: "entity", selector: ".*" },
     condition: (model, entity: any) => {
-      const hasTimestamps = entity.properties?.some((p: any) => p.name?.toLowerCase() === "created_at") &&
-        entity.properties?.some((p: any) => p.name?.toLowerCase() === "updated_at");
+      const hasTimestamps = entity.properties?.some((p: any) => p.name?.toLowerCase() === "created_at") && 
+                           entity.properties?.some((p: any) => p.name?.toLowerCase() === "updated_at");
       return !hasTimestamps;
     },
     suggestion: {
@@ -649,6 +1485,27 @@ export const RULES: Rule[] = [
       description: "Add created_at and updated_at columns to this entity.",
       impact: "low",
       rationale: "Timestamps are essential for auditing and tracking data changes over time."
+    },
+    fix: (model, entity: any): AutoFixAction => {
+      const newProps = [...(entity.properties || [])];
+      if (!newProps.some(p => p.name === 'created_at')) {
+        newProps.push({ name: "created_at", type: "timestamp", description: "Creation timestamp" });
+      }
+      if (!newProps.some(p => p.name === 'updated_at')) {
+        newProps.push({ name: "updated_at", type: "timestamp", description: "Last update timestamp" });
+      }
+      return {
+        id: `fix-timestamps-${entity.name.toLowerCase()}`,
+        type: 'update',
+        target: entity.name,
+        location: `entities.${entity.name}`,
+        newValue: {
+          ...entity,
+          properties: newProps
+        },
+        rationale: `Added standard timestamps to ${entity.name}`,
+        riskLevel: 'safe'
+      };
     }
   },
   {
@@ -669,6 +1526,61 @@ export const RULES: Rule[] = [
   },
 
   // --- DEVOPS & INFRASTRUCTURE ---
+  {
+    id: "rule-devops-dockerfile",
+    category: "devops",
+    description: "Project should have a Dockerfile for containerization.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      if (!model.files) return false;
+      return !model.files.some(f => f.name.toLowerCase() === 'dockerfile');
+    },
+    suggestion: {
+      action: "Add Dockerfile",
+      description: "Create a Dockerfile to containerize the application for consistent deployments.",
+      impact: "high",
+      rationale: "Containerization ensures the app runs consistently across different environments."
+    }
+  },
+  {
+    id: "rule-devops-tsconfig",
+    category: "devops",
+    description: "TypeScript projects must have a tsconfig.json.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      if (!model.files) return false;
+      const hasTsFiles = model.files.some(f => f.name.endsWith('.ts') || f.name.endsWith('.tsx'));
+      const hasTsConfig = model.files.some(f => f.name.toLowerCase() === 'tsconfig.json');
+      return hasTsFiles && !hasTsConfig;
+    },
+    suggestion: {
+      action: "Add tsconfig.json",
+      description: "Create a tsconfig.json file to configure the TypeScript compiler.",
+      impact: "high",
+      rationale: "Required for TypeScript compilation and IDE support."
+    }
+  },
+  {
+    id: "rule-devops-strict-ts",
+    category: "devops",
+    description: "TypeScript strict mode should be enabled.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      if (!model.files) return false;
+      const tsConfig = model.files.find(f => f.name.toLowerCase() === 'tsconfig.json');
+      if (!tsConfig) return false;
+      
+      // Check if strict is explicitly set to false, or missing
+      const content = tsConfig.content.replace(/\s/g, '');
+      return !content.includes('"strict":true');
+    },
+    suggestion: {
+      action: "Enable Strict Mode",
+      description: "Set \"strict\": true in your tsconfig.json.",
+      impact: "medium",
+      rationale: "Strict mode catches many common programming errors at compile time."
+    }
+  },
   {
     id: "rule-devops-health-check",
     category: "devops",
@@ -720,6 +1632,65 @@ export const RULES: Rule[] = [
 
   // --- TESTING ---
   {
+    id: "rule-e2e-critical-flows",
+    category: "testing",
+    description: "Critical user flows must have E2E tests.",
+    trigger: { type: "flow", selector: ".*(login|signup|checkout|payment|register|auth).*" },
+    condition: (model, flow: UserFlow) => {
+      const hasE2E = model.microDetails?.some(d => 
+        (d.description.toLowerCase().includes("e2e") || d.description.toLowerCase().includes("cypress") || d.description.toLowerCase().includes("playwright")) &&
+        d.description.toLowerCase().includes(flow.name.toLowerCase())
+      );
+      return !hasE2E;
+    },
+    suggestion: {
+      action: "Add E2E Test for Critical Flow",
+      description: "Implement an End-to-End test for this critical user flow to ensure core business functionality does not break.",
+      impact: "high",
+      rationale: "Critical paths like authentication and checkout must be verified in a real browser environment."
+    }
+  },
+  {
+    id: "rule-e2e-selectors",
+    category: "testing",
+    description: "Use robust selectors for E2E testing.",
+    trigger: { type: "component", selector: ".*(Button|Input|Form|Link).*" },
+    condition: (model, component: UIComponent) => {
+      const hasTestId = component.attributes?.some(attr => attr.name.toLowerCase() === "data-testid" || attr.name.toLowerCase() === "data-cy");
+      return !hasTestId;
+    },
+    suggestion: {
+      action: "Add data-testid Attribute",
+      description: "Add a 'data-testid' attribute to this interactive component for robust E2E testing.",
+      impact: "medium",
+      rationale: "Using class names or complex CSS paths for testing is brittle. data-testid provides a stable contract for tests."
+    }
+  },
+  {
+    id: "rule-e2e-data-management",
+    category: "testing",
+    description: "Ensure test data is isolated and consistent.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const mentionsE2E = model.microDetails?.some(d => d.description.toLowerCase().includes("e2e") || d.description.toLowerCase().includes("cypress") || d.description.toLowerCase().includes("playwright"));
+      if (!mentionsE2E) return false;
+
+      const mentionsDataManagement = model.microDetails?.some(d => 
+        d.description.toLowerCase().includes("seed") || 
+        d.description.toLowerCase().includes("fixture") || 
+        d.description.toLowerCase().includes("factory") ||
+        d.description.toLowerCase().includes("mock")
+      );
+      return !mentionsDataManagement;
+    },
+    suggestion: {
+      action: "Implement Test Data Management",
+      description: "Set up database seeding, fixtures, or factories to ensure E2E tests run in a consistent, isolated state.",
+      impact: "medium",
+      rationale: "E2E tests that rely on shared or mutable state are flaky and hard to maintain."
+    }
+  },
+  {
     id: "rule-testing-coverage",
     category: "testing",
     description: "Critical business logic should have unit tests.",
@@ -755,8 +1726,8 @@ export const RULES: Rule[] = [
     description: "Passwords must never be stored in plain text.",
     trigger: { type: "flow", selector: ".*(Signup|Login|Password|Auth).*" },
     condition: (model, flow: UserFlow) => {
-      const hasHashing = flow.steps.some(step =>
-        step.action?.toLowerCase().includes("hash") ||
+      const hasHashing = flow.steps.some(step => 
+        step.action?.toLowerCase().includes("hash") || 
         step.action?.toLowerCase().includes("bcrypt") ||
         step.action?.toLowerCase().includes("argon2")
       );
@@ -823,8 +1794,8 @@ export const RULES: Rule[] = [
     description: "Prevent SQL injection by using parameterized queries.",
     trigger: { type: "flow", selector: ".*(API|Post|Put|Patch|Delete|Query|Search).*" },
     condition: (model, flow: UserFlow) => {
-      const hasParamQueries = flow.steps.some(step =>
-        step.action?.toLowerCase().includes("parameterized") ||
+      const hasParamQueries = flow.steps.some(step => 
+        step.action?.toLowerCase().includes("parameterized") || 
         step.action?.toLowerCase().includes("prepared statement") ||
         step.action?.toLowerCase().includes("orm") ||
         step.action?.toLowerCase().includes("prisma") ||
@@ -921,7 +1892,7 @@ export const RULES: Rule[] = [
   }
 ];
 
-export const evaluateRules = (model: SystemModel): SmartSuggestion[] => {
+export const evaluateRules = (model: SystemModel, customRules: Rule[] = []): SmartSuggestion[] => {
   const suggestions: SmartSuggestion[] = [];
 
   // Helper to check selector
@@ -935,10 +1906,12 @@ export const evaluateRules = (model: SystemModel): SmartSuggestion[] => {
     }
   };
 
-  RULES.forEach(rule => {
+  const allRules = [...RULES, ...customRules];
+
+  allRules.forEach(rule => {
     if (rule.trigger.type === "global") {
       if (rule.condition(model)) {
-        suggestions.push(createSuggestion(rule));
+        suggestions.push(createSuggestion(rule, model));
       }
     } else if (rule.trigger.type === "component") {
       model.uiModules.forEach(module => {
@@ -946,7 +1919,7 @@ export const evaluateRules = (model: SystemModel): SmartSuggestion[] => {
           components.forEach(comp => {
             if (matchesSelector(comp.name, rule.trigger.selector)) {
               if (rule.condition(model, comp)) {
-                suggestions.push(createSuggestion(rule, comp.name));
+                suggestions.push(createSuggestion(rule, model, comp, comp.name));
               }
             }
             if (comp.children) checkComponents(comp.children);
@@ -958,7 +1931,7 @@ export const evaluateRules = (model: SystemModel): SmartSuggestion[] => {
       model.flows.forEach(flow => {
         if (matchesSelector(flow.name, rule.trigger.selector)) {
           if (rule.condition(model, flow)) {
-            suggestions.push(createSuggestion(rule, flow.name));
+            suggestions.push(createSuggestion(rule, model, flow, flow.name));
           }
         }
       });
@@ -966,7 +1939,7 @@ export const evaluateRules = (model: SystemModel): SmartSuggestion[] => {
       model.entities.forEach(entity => {
         if (matchesSelector(entity.name, rule.trigger.selector)) {
           if (rule.condition(model, entity)) {
-            suggestions.push(createSuggestion(rule, entity.name));
+            suggestions.push(createSuggestion(rule, model, entity, entity.name));
           }
         }
       });
@@ -978,6 +1951,38 @@ export const evaluateRules = (model: SystemModel): SmartSuggestion[] => {
 
 export const applySuggestion = (model: SystemModel, suggestion: SmartSuggestion): SystemModel => {
   const newModel = { ...model };
+  
+  if (suggestion.autoFix) {
+    const fix = suggestion.autoFix;
+    
+    if (fix.type === 'update' && fix.location.startsWith('components.')) {
+      newModel.uiModules.forEach(module => {
+        const fixComponents = (components: UIComponent[]) => {
+          components.forEach((comp, index) => {
+            if (comp.name === fix.target) {
+              components[index] = fix.newValue;
+            }
+            if (comp.children) fixComponents(comp.children);
+          });
+        };
+        fixComponents(module.components);
+      });
+    } else if (fix.type === 'update' && fix.location.startsWith('entities.')) {
+      const entityIndex = newModel.entities.findIndex(e => e.name === fix.target);
+      if (entityIndex !== -1) {
+        newModel.entities[entityIndex] = fix.newValue;
+      }
+    } else if (fix.type === 'update' && fix.location.startsWith('flows.')) {
+      const flowIndex = newModel.flows.findIndex(f => f.name === fix.target);
+      if (flowIndex !== -1) {
+        newModel.flows[flowIndex] = fix.newValue;
+      }
+    }
+    // Add other fix types (insert, delete) as needed
+    return newModel;
+  }
+
+  // Fallback to old fix method if autoFix object isn't present
   const rule = RULES.find(r => r.id === suggestion.ruleId);
   if (!rule || !rule.fix) return newModel;
 
@@ -1094,7 +2099,7 @@ export const detectContradictions = (model: SystemModel): Contradiction[] => {
   model.flows.forEach(flow => {
     const isAdminFlow = flow.name.toLowerCase().includes('admin') || flow.trigger.toLowerCase().includes('admin');
     const hasPublicStep = flow.steps.some(s => s.action?.toLowerCase().includes('public') || s.action?.toLowerCase().includes('guest'));
-
+    
     if (isAdminFlow && hasPublicStep) {
       contradictions.push({
         id: `contra-perm-${flow.name}`,
@@ -1113,11 +2118,11 @@ export const detectContradictions = (model: SystemModel): Contradiction[] => {
   model.constraints.forEach((c1, i) => {
     model.constraints.forEach((c2, j) => {
       if (i >= j) return;
-
+      
       const d1 = c1.description.toLowerCase();
       const d2 = c2.description.toLowerCase();
-
-      const isContradictory =
+      
+      const isContradictory = 
         (d1.includes('real-time') && d2.includes('batch')) ||
         (d1.includes('synchronous') && d2.includes('asynchronous')) ||
         (d1.includes('mobile-only') && d2.includes('desktop-only'));
@@ -1162,6 +2167,131 @@ export const detectContradictions = (model: SystemModel): Contradiction[] => {
       }
     }
   });
+
+  // 7. Conflicting API versions
+  const apiVersions = new Set<string>();
+  const apiVersionOccurrences: { version: string, text: string, provenance: any }[] = [];
+  
+  const versionRegex = /\/v(\d+)\//i;
+  
+  model.flows.forEach(flow => {
+    const match = flow.name.match(versionRegex) || flow.trigger.match(versionRegex);
+    if (match) {
+      apiVersions.add(match[1]);
+      apiVersionOccurrences.push({
+        version: match[1],
+        text: `Flow "${flow.name}" uses API v${match[1]}`,
+        provenance: flow.provenance || { file: 'unknown', context: flow.name }
+      });
+    }
+    flow.steps.forEach(step => {
+      const stepMatch = step.action.match(versionRegex) || step.expectedResult.match(versionRegex);
+      if (stepMatch) {
+        apiVersions.add(stepMatch[1]);
+        apiVersionOccurrences.push({
+          version: stepMatch[1],
+          text: `Step "${step.action}" uses API v${stepMatch[1]}`,
+          provenance: flow.provenance || { file: 'unknown', context: step.action }
+        });
+      }
+    });
+  });
+
+  if (apiVersions.size > 1) {
+    contradictions.push({
+      id: `contra-api-versions`,
+      description: `Conflicting API versions detected across flows`,
+      conflictingPoints: apiVersionOccurrences.map(o => ({
+        text: o.text,
+        provenance: o.provenance
+      })),
+      resolutionSuggestion: "Standardize on a single API version or ensure backward compatibility is explicitly documented.",
+      severity: 'high'
+    });
+  }
+
+  // 8. Differing Data Schemas (Frontend vs Backend)
+  model.entities.forEach(entity => {
+    const entityProps = entity.properties.map(p => p.name.toLowerCase());
+    
+    model.uiModules.forEach(module => {
+      const checkComponentSchema = (components: UIComponent[]) => {
+        components.forEach(comp => {
+          if (comp.name.toLowerCase().includes(entity.name.toLowerCase()) && comp.name.toLowerCase().includes('form')) {
+            const formFields: string[] = [];
+            const extractFields = (children: UIComponent[]) => {
+              children.forEach(child => {
+                if (child.name.toLowerCase().includes('input') || child.name.toLowerCase().includes('field') || child.name.toLowerCase().includes('select')) {
+                  const nameAttr = child.attributes?.find(a => a.name.toLowerCase() === 'name' || a.name.toLowerCase() === 'id');
+                  if (nameAttr) formFields.push(nameAttr.value.toLowerCase());
+                }
+                if (child.children) extractFields(child.children);
+              });
+            };
+            if (comp.children) extractFields(comp.children);
+            
+            if (formFields.length > 0) {
+              const mismatchedFields = formFields.filter(f => !entityProps.some(ep => ep === f || ep.replace(/_/g, '') === f.replace(/_/g, '')));
+              
+              if (mismatchedFields.length > 0) {
+                contradictions.push({
+                  id: `contra-schema-${entity.name}-${comp.name}`,
+                  description: `Data schema mismatch between frontend component "${comp.name}" and backend entity "${entity.name}"`,
+                  conflictingPoints: [
+                    { text: `Frontend form expects fields: ${mismatchedFields.join(', ')}`, provenance: module.provenance || { file: 'unknown', context: comp.name } },
+                    { text: `Backend entity "${entity.name}" properties: ${entityProps.join(', ')}`, provenance: entity.provenance || { file: 'unknown', context: entity.name } }
+                  ],
+                  resolutionSuggestion: "Align the frontend form fields with the backend entity properties, or ensure there is a data transformation layer (DTO).",
+                  severity: 'medium'
+                });
+              }
+            }
+          }
+          if (comp.children) checkComponentSchema(comp.children);
+        });
+      };
+      checkComponentSchema(module.components);
+    });
+  });
+
+  // 9. Windows Native: Capability vs Flow Contradictions
+  const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
+  if (isWindowsApp) {
+    model.flows.forEach(flow => {
+      const needsWebcam = flow.steps.some(s => s.action.toLowerCase().includes('camera') || s.action.toLowerCase().includes('take picture'));
+      const hasWebcamCapability = model.microDetails?.some(d => d.description.toLowerCase().includes('webcam') || d.description.toLowerCase().includes('camera capability'));
+      
+      if (needsWebcam && !hasWebcamCapability) {
+        contradictions.push({
+          id: `contra-win-capability-webcam-${flow.name.replace(/\s+/g, '-')}`,
+          description: `Missing OS Capability for Flow: ${flow.name}`,
+          conflictingPoints: [
+            { text: `Flow requires camera access`, provenance: flow.provenance || { file: 'unknown', context: flow.name } },
+            { text: `App manifest does not declare 'webcam' capability`, provenance: { file: 'System Model', context: 'Capabilities' } }
+          ],
+          resolutionSuggestion: "Add the 'webcam' capability to the Package.appxmanifest.",
+          severity: 'high'
+        });
+      }
+    });
+
+    // 10. Windows Native: Lifecycle Contradictions
+    const hasPolling = model.flows.some(f => f.trigger.toLowerCase().includes('every') || f.trigger.toLowerCase().includes('interval') || f.trigger.toLowerCase().includes('poll'));
+    const hasBackgroundTask = model.microDetails?.some(d => d.description.toLowerCase().includes('background task') || d.description.toLowerCase().includes('extended execution'));
+    
+    if (hasPolling && !hasBackgroundTask) {
+      contradictions.push({
+        id: `contra-win-lifecycle-polling`,
+        description: `App lifecycle contradiction: Polling without Background Task`,
+        conflictingPoints: [
+          { text: `Flows require continuous polling`, provenance: { file: 'System Model', context: 'Flow Triggers' } },
+          { text: `No Background Task or Extended Execution registered`, provenance: { file: 'System Model', context: 'App Lifecycle' } }
+        ],
+        resolutionSuggestion: "Windows will suspend the app when minimized, halting the polling. Implement a BackgroundTask or ExtendedExecutionSession.",
+        severity: 'high'
+      });
+    }
+  }
 
   return contradictions;
 };
@@ -1220,14 +2350,14 @@ export const detectDuplicates = (model: SystemModel): DuplicateContent[] => {
     }
   });
 
-  // 3. Duplicate Components (within UI Modules)
-  const componentMap = new Map<string, { module: string; file: string }[]>();
+  // 3. Duplicate Components (within UI Modules) - Fuzzy Matching
+  const componentMap = new Map<string, { module: string; file: string; comp: UIComponent }[]>();
   model.uiModules.forEach(module => {
     const traverse = (components: UIComponent[]) => {
       components.forEach(comp => {
         const name = comp.name.toLowerCase().trim();
         if (!componentMap.has(name)) componentMap.set(name, []);
-        componentMap.get(name)!.push({ module: module.name, file: module.provenance?.file || 'unknown' });
+        componentMap.get(name)!.push({ module: module.name, file: module.provenance?.file || 'unknown', comp });
         if (comp.children) traverse(comp.children);
       });
     };
@@ -1239,32 +2369,98 @@ export const detectDuplicates = (model: SystemModel): DuplicateContent[] => {
       // Only flag if in different modules or files
       const uniqueModules = new Set(occurrences.map(o => o.module));
       if (uniqueModules.size > 1) {
-        duplicates.push({
-          id: `dup-comp-${name}`,
-          elementName: name,
-          elementType: 'component',
-          occurrences: occurrences.map(o => ({
-            file: o.file,
-            context: `Found in module: ${o.module}`
-          })),
-          impact: 'low',
-          suggestion: `Component "${name}" is defined in multiple modules. Consider making it a shared/global component.`
+        // Fuzzy matching: Check if attributes and children count are similar
+        const firstComp = occurrences[0].comp;
+        const isFuzzyMatch = occurrences.every(o => {
+          const attrCountDiff = Math.abs((o.comp.attributes?.length || 0) - (firstComp.attributes?.length || 0));
+          const childCountDiff = Math.abs((o.comp.children?.length || 0) - (firstComp.children?.length || 0));
+          return attrCountDiff <= 2 && childCountDiff <= 2;
         });
+
+        if (isFuzzyMatch) {
+          duplicates.push({
+            id: `dup-comp-${name}`,
+            elementName: name,
+            elementType: 'component',
+            occurrences: occurrences.map(o => ({
+              file: o.file,
+              context: `Found in module: ${o.module}`
+            })),
+            impact: 'low',
+            suggestion: `Component "${name}" is structurally duplicated across multiple modules. Consider making it a shared/global component.`
+          });
+        }
       }
+    }
+  });
+
+  // 4. Logic Duplication Check (Utility functions)
+  const logicMap = new Map<string, { file: string; context: string }[]>();
+  model.microDetails?.forEach(detail => {
+    if (detail.category === 'logic' && detail.description.toLowerCase().includes('utility') || detail.description.toLowerCase().includes('helper')) {
+      const nameMatch = detail.description.match(/(?:utility|helper)\s+['"]?(\w+)['"]?/i);
+      if (nameMatch) {
+        const name = nameMatch[1].toLowerCase();
+        if (!logicMap.has(name)) logicMap.set(name, []);
+        logicMap.get(name)!.push({ file: detail.provenance?.file || 'unknown', context: detail.description });
+      }
+    }
+  });
+
+  logicMap.forEach((occurrences, name) => {
+    if (occurrences.length > 1) {
+      duplicates.push({
+        id: `dup-logic-${name}`,
+        elementName: name,
+        elementType: 'rule',
+        occurrences: occurrences,
+        impact: 'medium',
+        suggestion: `Utility logic "${name}" is duplicated across multiple files. Consolidate into a shared module/service.`
+      });
+    }
+  });
+
+  // 5. Configuration Duplication Check
+  const configMap = new Map<string, { file: string; context: string }[]>();
+  model.microDetails?.forEach(detail => {
+    if (detail.description.toLowerCase().includes('package.json') || detail.description.toLowerCase().includes('build script') || detail.description.toLowerCase().includes('config')) {
+      const nameMatch = detail.description.match(/(?:config|script|dependency)\s+['"]?([\w@/-]+)['"]?/i);
+      if (nameMatch) {
+        const name = nameMatch[1].toLowerCase();
+        if (!configMap.has(name)) configMap.set(name, []);
+        configMap.get(name)!.push({ file: detail.provenance?.file || 'unknown', context: detail.description });
+      }
+    }
+  });
+
+  configMap.forEach((occurrences, name) => {
+    if (occurrences.length > 1) {
+      duplicates.push({
+        id: `dup-config-${name.replace(/[^a-zA-Z0-9]/g, '-')}`,
+        elementName: name,
+        elementType: 'rule',
+        occurrences: occurrences,
+        impact: 'low',
+        suggestion: `Configuration or dependency "${name}" is defined multiple times. Ensure there are no conflicting versions or redundant scripts.`
+      });
     }
   });
 
   return duplicates;
 };
 
-const createSuggestion = (rule: Rule, targetName?: string): SmartSuggestion => ({
-  id: `${rule.id}-${targetName || "global"}-${Math.random().toString(36).substr(2, 9)}`,
-  ruleId: rule.id,
-  category: rule.category,
-  description: targetName ? `${rule.description} (Target: ${targetName})` : rule.description,
-  impact: rule.suggestion.impact,
-  rationale: rule.suggestion.rationale,
-  action: rule.suggestion.action,
-  status: "pending",
-  targetElement: targetName
-});
+const createSuggestion = (rule: Rule, model: SystemModel, target?: any, targetName?: string): SmartSuggestion => {
+  const fixAction = rule.fix ? rule.fix(model, target) : undefined;
+  return {
+    id: `${rule.id}-${targetName || "global"}-${Math.random().toString(36).substr(2, 9)}`,
+    ruleId: rule.id,
+    category: rule.category,
+    description: targetName ? `${rule.description} (Target: ${targetName})` : rule.description,
+    impact: rule.suggestion.impact,
+    rationale: rule.suggestion.rationale,
+    action: rule.suggestion.action,
+    status: "pending",
+    targetElement: targetName,
+    autoFix: fixAction as AutoFixAction | undefined
+  };
+};
