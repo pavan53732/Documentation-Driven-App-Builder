@@ -1,115 +1,119 @@
-import { create } from 'zustand';
+import { create, StateCreator } from 'zustand';
+import { devtools, subscribeWithSelector } from 'zustand/middleware';
+import { immer } from 'zustand/middleware/immer';
 import { SystemModel, BuildTask } from './types';
 
-interface AppState {
-  theme: 'light' | 'dark';
+// --- Types ---
+
+interface ProjectState {
   name: string;
   docs: { name: string; content: string }[];
   model: SystemModel | null;
   tasks: BuildTask[];
   currentTaskIndex: number;
-  isAnalyzing: boolean;
-  isQuickScanning: boolean;
-  isGlobalLoading: boolean;
-  activeTab: 'docs' | 'model' | 'tasks' | 'standards';
-  streamedRawText: string;
+  customRules: any[];
+}
 
-  // Actions
-  setTheme: (theme: 'light' | 'dark') => void;
+interface ProjectActions {
   setName: (name: string) => void;
   addDocs: (docs: { name: string; content: string }[]) => void;
   removeDoc: (index: number) => void;
   setModel: (model: SystemModel | null) => void;
   setTasks: (tasks: BuildTask[]) => void;
   setCurrentTaskIndex: (index: number) => void;
+  setCustomRules: (rules: any[]) => void;
+  toggleTaskStatus: (index: number) => void;
+  loadProject: () => Promise<void>;
+  saveProject: () => void;
+}
+
+interface UIState {
+  theme: 'light' | 'dark';
+  isAnalyzing: boolean;
+  isQuickScanning: boolean;
+  isGlobalLoading: boolean;
+  activeTab: 'docs' | 'model' | 'tasks' | 'standards';
+  streamedRawText: string;
+}
+
+interface UIActions {
+  setTheme: (theme: 'light' | 'dark') => void;
   setIsAnalyzing: (isAnalyzing: boolean) => void;
   setIsQuickScanning: (isQuickScanning: boolean) => void;
   setIsGlobalLoading: (isGlobalLoading: boolean) => void;
   setActiveTab: (tab: 'docs' | 'model' | 'tasks' | 'standards') => void;
   setStreamedRawText: (text: string) => void;
-  toggleTaskStatus: (index: number) => void;
-  loadProject: () => Promise<void>;
-  saveProject: () => void;
-  customRules: any[];
-  setCustomRules: (rules: any[]) => void;
 }
 
-let saveTimeout: ReturnType<typeof setTimeout>;
+export type AppState = ProjectState & ProjectActions & UIState & UIActions;
 
-export const useAppStore = create<AppState>((set, get) => ({
-  theme: (localStorage.getItem('guide-theme') as 'light' | 'dark') || 'light',
+// --- Slices ---
+
+const createProjectSlice: StateCreator<
+  AppState,
+  [['zustand/devtools', never], ['zustand/subscribeWithSelector', never], ['zustand/immer', never]],
+  [],
+  ProjectState & ProjectActions
+> = (set, get) => ({
   name: 'New Project',
   docs: [],
   model: null,
   tasks: [],
   currentTaskIndex: 0,
-  isAnalyzing: false,
-  isQuickScanning: false,
-  isGlobalLoading: false,
-  activeTab: 'docs',
-  streamedRawText: '',
   customRules: [],
 
-  setTheme: (theme) => {
-    localStorage.setItem('guide-theme', theme);
-    set({ theme });
-  },
   setName: (name) => {
-    set({ name });
+    set((state) => { state.name = name; }, false, 'project/setName');
     get().saveProject();
   },
   addDocs: (newDocs) => {
-    set((state) => ({ docs: [...state.docs, ...newDocs] }));
+    set((state) => { state.docs.push(...newDocs); }, false, 'project/addDocs');
     get().saveProject();
   },
   removeDoc: (index) => {
-    set((state) => ({ docs: state.docs.filter((_, i) => i !== index) }));
+    set((state) => { state.docs.splice(index, 1); }, false, 'project/removeDoc');
     get().saveProject();
   },
   setModel: (model) => {
-    set({ model });
+    set((state) => { state.model = model; }, false, 'project/setModel');
     get().saveProject();
   },
   setTasks: (tasks) => {
-    set({ tasks });
+    set((state) => { state.tasks = tasks; }, false, 'project/setTasks');
     get().saveProject();
   },
-  setCurrentTaskIndex: (currentTaskIndex) => {
-    set({ currentTaskIndex });
+  setCurrentTaskIndex: (index) => {
+    set((state) => { state.currentTaskIndex = index; }, false, 'project/setCurrentTaskIndex');
     get().saveProject();
   },
-  setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
-  setIsQuickScanning: (isQuickScanning) => set({ isQuickScanning }),
-  setIsGlobalLoading: (isGlobalLoading) => set({ isGlobalLoading }),
-  setActiveTab: (activeTab) => set({ activeTab }),
-  setStreamedRawText: (streamedRawText) => set({ streamedRawText }),
-  setCustomRules: (customRules) => {
-    set({ customRules });
+  setCustomRules: (rules) => {
+    set((state) => { state.customRules = rules; }, false, 'project/setCustomRules');
     get().saveProject();
   },
   toggleTaskStatus: (index) => {
     set((state) => {
-      const newTasks = [...state.tasks];
-      newTasks[index].status = newTasks[index].status === 'completed' ? 'pending' : 'completed';
-      return { tasks: newTasks };
-    });
+      const task = state.tasks[index];
+      if (task) {
+        task.status = task.status === 'completed' ? 'pending' : 'completed';
+      }
+    }, false, 'project/toggleTaskStatus');
     get().saveProject();
   },
-  
+
   loadProject: async () => {
     try {
       const res = await fetch('/api/state');
       if (res.ok) {
         const data = await res.json();
         if (data) {
-          set({
-            name: data.name || 'New Project',
-            docs: data.docs || [],
-            model: data.model || null,
-            tasks: data.tasks || [],
-            currentTaskIndex: data.currentTaskIndex || 0,
-            customRules: data.customRules || [],
-          });
+          set((state) => {
+            state.name = data.name || 'New Project';
+            state.docs = data.docs || [];
+            state.model = data.model || null;
+            state.tasks = data.tasks || [];
+            state.currentTaskIndex = data.currentTaskIndex || 0;
+            state.customRules = data.customRules || [];
+          }, false, 'project/loadProject');
         }
       }
     } catch (err) {
@@ -118,25 +122,73 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveProject: () => {
-    clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(async () => {
-      const state = get();
-      try {
-        await fetch('/api/state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: state.name,
-            docs: state.docs,
-            model: state.model,
-            tasks: state.tasks,
-            currentTaskIndex: state.currentTaskIndex,
-            customRules: state.customRules,
-          }),
-        });
-      } catch (err) {
-        console.error("Failed to save project:", err);
-      }
-    }, 1000); // 1 second debounce
+    // Debounce logic is handled outside or could be integrated here.
+    // We'll keep the existing debounce logic for now.
+    triggerSave(get());
   }
-}));
+});
+
+const createUISlice: StateCreator<
+  AppState,
+  [['zustand/devtools', never], ['zustand/subscribeWithSelector', never], ['zustand/immer', never]],
+  [],
+  UIState & UIActions
+> = (set) => ({
+  theme: (localStorage.getItem('guide-theme') as 'light' | 'dark') || 'light',
+  isAnalyzing: false,
+  isQuickScanning: false,
+  isGlobalLoading: false,
+  activeTab: 'docs',
+  streamedRawText: '',
+
+  setTheme: (theme) => {
+    localStorage.setItem('guide-theme', theme);
+    set((state) => { state.theme = theme; }, false, 'ui/setTheme');
+  },
+  setIsAnalyzing: (isAnalyzing) => set((state) => { state.isAnalyzing = isAnalyzing; }, false, 'ui/setIsAnalyzing'),
+  setIsQuickScanning: (isQuickScanning) => set((state) => { state.isQuickScanning = isQuickScanning; }, false, 'ui/setIsQuickScanning'),
+  setIsGlobalLoading: (isGlobalLoading) => set((state) => { state.isGlobalLoading = isGlobalLoading; }, false, 'ui/setIsGlobalLoading'),
+  setActiveTab: (tab) => set((state) => { state.activeTab = tab; }, false, 'ui/setActiveTab'),
+  setStreamedRawText: (text) => set((state) => { state.streamedRawText = text; }, false, 'ui/setStreamedRawText'),
+});
+
+// --- Store ---
+
+export const useAppStore = create<AppState>()(
+  devtools(
+    subscribeWithSelector(
+      immer((...a) => ({
+        ...createProjectSlice(...a),
+        ...createUISlice(...a),
+      }))
+    ),
+    { name: 'GuideEngineStore' }
+  )
+);
+
+// --- Persistence Helper ---
+
+let saveTimeout: ReturnType<typeof setTimeout>;
+
+const triggerSave = (state: AppState) => {
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(async () => {
+    try {
+      await fetch('/api/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: state.name,
+          docs: state.docs,
+          model: state.model,
+          tasks: state.tasks,
+          currentTaskIndex: state.currentTaskIndex,
+          customRules: state.customRules,
+        }),
+      });
+    } catch (err) {
+      console.error("Failed to save project:", err);
+    }
+  }, 1000);
+};
+

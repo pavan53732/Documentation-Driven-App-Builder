@@ -1,8 +1,9 @@
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
-import { SystemModel, BuildTask, SmartSuggestion } from "../types";
-import { SystemModelSchema } from "../schema";
+import { SystemModel, BuildTask, SmartSuggestion, AuditReport } from "../types";
+import { SystemModelSchema, AuditReportSchema } from "../schema";
 import { evaluateRules } from "./ruleEngine";
 import { detectFrameworks, validateCompatibility } from "./frameworkDetection";
+import { KNOWLEDGE_BASE } from "../constants/knowledgeBase";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
@@ -49,7 +50,47 @@ export const analyzeDocumentation = async (
   onChunk?: (text: string) => void,
   customRules: any[] = []
 ): Promise<SystemModel> => {
+  // If there are multiple large files, we can process them in parallel to speed up extraction
+  // However, for synthesis, we still need a final pass.
+  // For now, we'll implement a parallel extraction if docs > 3
+  
+  if (docs.length > 3) {
+    console.log(`[GeminiService] Parallel analysis triggered for ${docs.length} documents`);
+    const chunks = [];
+    for (let i = 0; i < docs.length; i += 3) {
+      chunks.push(docs.slice(i, i + 3));
+    }
+
+    const partialModels = await Promise.all(chunks.map(chunk => analyzeDocumentation(chunk, undefined, customRules)));
+    
+    // Synthesize partial models
+    const synthesisResponse = await ai.models.generateContent({
+      model: "gemini-3.1-pro-preview",
+      contents: [{
+        role: "user",
+        parts: [{
+          text: `Synthesize these partial system models into one cohesive, production-ready blueprint. 
+          Resolve any overlaps and ensure consistent relationships.
+          
+          Partial Models:
+          ${partialModels.map(m => JSON.stringify(m, null, 2)).join("\n\n---\n\n")}
+          
+          Return the final synthesized model in the same JSON format.`
+        }]
+      }],
+      config: {
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
+      }
+    });
+
+    const finalModel = SystemModelSchema.parse(JSON.parse(synthesisResponse.text || "{}"));
+    finalModel.files = docs;
+    return finalModel;
+  }
+
   const combinedDocs = docs.map(d => `File: ${d.name}\n\n${d.content}`).join("\n\n---\n\n");
+  // ... existing implementation for single pass ...
 
   const responseStream = await ai.models.generateContentStream({
     model: "gemini-3.1-pro-preview",
@@ -57,8 +98,19 @@ export const analyzeDocumentation = async (
       {
         role: "user",
         parts: [{
-          text: `You are a World-Class Full-Stack Architect and Lead Product Designer. 
+          text: `You are a World-Class Full-Stack Architect, Security Auditor, and Lead Product Designer. 
           Analyze the following system documentation with extreme precision and act as a proactive co-architect.
+          
+          ### YOUR CORE INTELLIGENCE (The 6 Lenses):
+          1. **The Hacker Lens (Security & Trust)**: Audit for OWASP Top 10, Zero Trust, Data Encryption (AES-256), and Identity Management (OAuth2/OIDC). Flag missing security headers, insecure storage, or weak auth flows.
+          2. **The SRE Lens (Operational Excellence)**: Audit for Scalability (Horizontal/Vertical), Observability (Logging, Metrics, Tracing), and Disaster Recovery (RTO/RPO). Audit for Microservices orchestration (K8s), Service Mesh (Istio), Serverless (FaaS) cold starts, and Infrastructure as Code (Terraform) drift. Flag missing load balancing, rate limiting, health checks, or poor observability.
+          3. **The Senior Architect Lens (Design Patterns)**: Enforce Clean Architecture, SOLID, Microservices vs. Monolith trade-offs, and CAP Theorem. Detect architectural contradictions and anti-patterns.
+          4. **The DBA Lens (Data Integrity)**: Enforce ACID vs. BASE, Relational (SQL) vs. Non-Relational (NoSQL) use cases, and Migration strategies. Audit for Distributed Transactions (Saga pattern), Query performance (Indexing/Sharding), Data Engineering (ETL) lineage, and Medallion architecture. Catch missing relationships, normalization issues, or data type mismatches.
+          5. **The Frontend Lead Lens (UX & Performance)**: Enforce Core Web Vitals, Accessibility (WCAG 2.1), State Management (Zustand/Redux), and Atomic Design. Flag complex flows, missing feedback loops, or poor a11y.
+          6. **The Windows Native Lens (Platform Specifics)**: Audit for Win32 APIs, WPF/WinUI paradigms, Registry interactions, and UAC levels. Audit for Shell integration (JumpLists, Context Menus), DirectX/Media Foundation performance, Driver/Kernel interop, and Enterprise Policy (GPO/MDM) compliance. Flag missing manifests, blocking UI threads, incorrect interop, or poor platform integration.
+
+          ### SYSTEM KNOWLEDGE BASE:
+          ${KNOWLEDGE_BASE.map(k => `- ${k.title}: ${k.description}`).join('\n')}
           
           Documentation:
           ${combinedDocs}
@@ -67,7 +119,12 @@ export const analyzeDocumentation = async (
 
           ### 1. Extraction & Analysis Guidance:
           - **Provenance**: For EVERY entity, flow, UI module, component, state definition, and micro-detail, you MUST provide the 'provenance' field indicating which file it came from and a short context snippet.
-          - **Framework-Specific Paradigms**: Pay special attention to Windows Native frameworks (WinUI 3, WPF, .NET MAUI) and Web frameworks (React, Next.js). Extract specifics like XAML bindings, MVVM ViewModels, Dispatcher usage, or React hooks.
+          - **Framework-Specific Paradigms**: Pay special attention to Windows Native (WinUI 3, WPF), Modern Web (Next.js, Astro, SvelteKit), and High-Performance Backends (Rust, FastAPI).
+            * **XAML Bindings**: Extract specifics like XAML bindings ({Binding ...} or {x:Bind ...}). Check for validation attributes like ValidatesOnDataErrors or ValidatesOnExceptions.
+            * **MVVM**: Identify ViewModels and their links to Views (DataContext, d:DataContext). Note if they inherit from ObservableObject or implement INotifyPropertyChanged/IDataErrorInfo.
+            * **UI Thread Safety**: Identify long-running operations in flows (API calls, heavy processing) and check if they are offloaded (Task.Run) and if UI updates are dispatched (Dispatcher/DispatcherQueue).
+            * **Modern Web**: Extract Server Components (RSC), Server Actions, Streaming patterns, and Islands architecture (Astro). Identify state management (Zustand/Redux) and data fetching (TanStack Query).
+            * **Backend & Systems**: Identify async/await concurrency (FastAPI/Rust), memory safety patterns (Rust), and type-safe database access (Prisma/Drizzle).
           - **User Flows**: Identify sequential interactions. Capture Trigger, Steps (Action, Result, State Transition), and Error Paths.
           - **Micro-Details**: Extract subtle micro-details like accessibility attributes (aria-*, tabIndex, AutomationProperties), keyboard navigation logic, and specific animation types (e.g., 'fade in', 'slide up', 'ConnectedAnimation').
           - **UI Modules**: Extract component hierarchies and technical attributes.
@@ -89,6 +146,13 @@ export const analyzeDocumentation = async (
           - **Deep Gap Analysis**: Identify missing pieces (Loading states, error boundaries, edge cases, data validation, rate limiting, security headers, etc.).
           - **Architectural Suggestions**: Propose industry-standard solutions.
           - **Readiness Score**: Calculate a score (0-100).
+
+          ### 4. ANTI-HALLUCINATION PROTOCOL (CRITICAL):
+          - **Strict Grounding**: You are strictly forbidden from inventing information. Every entity, flow, component, and detail MUST be grounded in the provided documentation.
+          - **Explicit Gaps**: If a required technical detail (e.g., a specific data type, a precise API endpoint, or a UI layout) is missing from the documentation, do NOT guess. Instead, list it as a "Gap" in the Gap Analysis section.
+          - **Provenance Enforcement**: For every extracted item, you MUST provide a 'provenance' field. If you cannot find a clear source for an item, do not include it.
+          - **No "Ghost" Logic**: Do not assume complex business logic or state transitions that are not explicitly described.
+          - **Contradiction Reporting**: If you find conflicting information across different files, do not attempt to resolve it yourself. Report it as a "Contradiction" with the exact conflicting snippets and their sources.
 
           Return the result in JSON format matching this schema:
           {
@@ -151,12 +215,6 @@ export const analyzeDocumentation = async (
   const model: SystemModel = SystemModelSchema.parse(parsedJson);
   model.files = docs;
   
-  // Run local framework detection
-  const detectedFrameworks = detectFrameworks(combinedDocs);
-  model.detectedFrameworks = detectedFrameworks;
-  model.compatibilityIssues = validateCompatibility(detectedFrameworks);
-  
-  model.smartSuggestions = evaluateRules(model, customRules);
   return model;
 };
 
@@ -205,7 +263,8 @@ export const quickAnalyze = async (
       }
     ],
     config: {
-      responseMimeType: "application/json"
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
     }
   });
 
@@ -225,13 +284,71 @@ export const quickAnalyze = async (
   const model: SystemModel = SystemModelSchema.parse(parsedJson);
   model.files = docs;
   
-  // Run local framework detection
-  const detectedFrameworks = detectFrameworks(combinedDocs);
-  model.detectedFrameworks = detectedFrameworks;
-  model.compatibilityIssues = validateCompatibility(detectedFrameworks);
+  // Perform Auditor Pass (Self-Correction Loop)
+  console.log(`[GeminiService] Auditor Pass Triggered`);
+  const auditReport = await auditModel(model, docs);
+  model.auditReport = auditReport;
   
-  model.smartSuggestions = evaluateRules(model, customRules);
   return model;
+};
+
+export const auditModel = async (model: SystemModel, docs: { name: string; content: string }[]): Promise<AuditReport> => {
+  const combinedDocs = docs.map(d => `File: ${d.name}\n\n${d.content}`).join("\n\n---\n\n");
+  // Remove files from model for audit to reduce token count
+  const { files, ...modelWithoutFiles } = model;
+  const modelJson = JSON.stringify(modelWithoutFiles, null, 2);
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3.1-pro-preview",
+    contents: [{
+      role: "user",
+      parts: [{
+        text: `You are a Senior Architectural Auditor. Your task is to perform a "Self-Correction" pass on a generated System Model.
+        
+        Compare the generated System Model against the original documentation. 
+        Identify:
+        1. **Hallucinations**: Elements in the model that are NOT in the documentation.
+        2. **Omissions**: Critical elements in the documentation that are MISSING from the model.
+        3. **Inconsistencies**: Elements that are present but have incorrect attributes or relationships.
+
+        ### ORIGINAL DOCUMENTATION:
+        ${combinedDocs}
+
+        ### GENERATED SYSTEM MODEL:
+        ${modelJson}
+
+        ### AUDIT GUIDELINES:
+        - Be extremely critical. 
+        - If a field is "inferred" but not explicitly stated, mark it as a potential hallucination if it's too specific.
+        - Calculate an overall confidence score (0-100).
+        
+        Return the audit report in JSON format matching this schema:
+        {
+          "overallConfidence": number,
+          "issues": [{
+            "type": "hallucination|omission|inconsistency",
+            "element": "string (name of the entity/flow/component)",
+            "description": "string",
+            "severity": "high|medium|low",
+            "suggestedFix": "string"
+          }],
+          "summary": "string"
+        }`
+      }]
+    }],
+    config: {
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
+    }
+  });
+
+  try {
+    const auditReport = JSON.parse(response.text || "{}");
+    return AuditReportSchema.parse(auditReport);
+  } catch (e) {
+    console.error("Failed to parse Audit Report:", e);
+    return { overallConfidence: 0, issues: [], summary: "Audit failed to generate." };
+  }
 };
 
 export const analyzeRejection = async (suggestion: SmartSuggestion, rationale: string): Promise<string> => {
@@ -263,67 +380,105 @@ export const analyzeRejection = async (suggestion: SmartSuggestion, rationale: s
 };
 
 export const decomposeTasks = async (model: SystemModel): Promise<BuildTask[]> => {
-  const response = await ai.models.generateContent({
+  // Parallelize task generation by splitting the model into logical chunks
+  // 1. Entities & Data Layer
+  // 2. UI Modules & Components
+  // 3. User Flows & Logic
+  
+  console.log(`[GeminiService] Parallel task generation triggered`);
+  
+  const chunks = [
+    { name: "Data Layer", data: { entities: model.entities, stateDefinitions: model.stateDefinitions, dependencies: model.dependencies } },
+    { name: "UI Layer", data: { uiModules: model.uiModules, microDetails: model.microDetails, constraints: model.constraints } },
+    { name: "Logic Layer", data: { flows: model.flows, systemRules: model.systemRules, gaps: model.gaps } }
+  ];
+
+  const taskPromises = chunks.map(chunk => ai.models.generateContent({
     model: "gemini-3.1-pro-preview",
-    contents: [
-      {
-        role: "user",
-        parts: [{
-          text: `Based on this highly detailed system model, create a hyper-granular, phased build plan.
-          Each task must be an atomic, incremental step. 
-          
-          Task ID Generation:
-          - Generate unique and descriptive IDs for each task based on its phase and title (e.g., "PHASE_TITLE_SLUG").
-          
-          Prompt Formatting:
-          - Use consistent Markdown formatting for clarity.
-          - Use headings for different sections (e.g., '## Component Structure', '## State Management', '## Event Handling', '## Error Handling & Feedback', '## Micro-interactions', '## Logic & Flows').
-          - Use bullet points for lists.
+    contents: [{
+      role: "user",
+      parts: [{
+        text: `Generate a phased build plan for the ${chunk.name} of this system.
+        
+        ### YOUR CORE INTELLIGENCE (The 6 Lenses):
+        1. **The Hacker Lens (Security & Trust)**: Audit for OWASP Top 10, Zero Trust, Data Encryption (AES-256), and Identity Management (OAuth2/OIDC). Flag missing security headers, insecure storage, or weak auth flows.
+        2. **The SRE Lens (Operational Excellence)**: Audit for Scalability (Horizontal/Vertical), Observability (Logging, Metrics, Tracing), and Disaster Recovery (RTO/RPO). Flag missing load balancing, rate limiting, or health checks.
+        3. **The Senior Architect Lens (Design Patterns)**: Enforce Clean Architecture, SOLID, Microservices vs. Monolith trade-offs, and CAP Theorem. Detect architectural contradictions and anti-patterns.
+        4. **The DBA Lens (Data Integrity)**: Enforce ACID vs. BASE, Relational (SQL) vs. Non-Relational (NoSQL) use cases, and Migration strategies. Catch missing relationships, normalization issues, or data type mismatches.
+        5. **The Frontend Lead Lens (UX & Performance)**: Enforce Core Web Vitals, Accessibility (WCAG 2.1), State Management (Zustand/Redux), and Atomic Design. Flag complex flows, missing feedback loops, or poor a11y.
+        6. **The Windows Native Lens (Platform Specifics)**: Audit for Win32 APIs, WPF/WinUI paradigms, Registry interactions, and UAC levels. Audit for Shell integration (JumpLists, Context Menus), DirectX/Media Foundation performance, Driver/Kernel interop, and Enterprise Policy (GPO/MDM) compliance. Flag missing manifests, blocking UI threads, incorrect interop, or poor platform integration.
 
-          The 'prompt' field for each task MUST be extremely detailed. For each task, you MUST include:
-          1. ## Component Structure: Define the hierarchy of components, props, and their roles.
-          2. ## State Management: Specify which state variables are needed, their initial values, and how they are updated. Include state updates for each micro-detail (e.g., "set isLoading to true while fetching"). Provide pseudocode for complex state transitions.
-          3. ## Event Handling: Detail the specific events (onClick, onChange, etc.) and the logic they trigger.
-          4. ## Error Handling & Feedback: Describe how errors are caught, specific user-facing error messages to display, and recovery strategies. Include code snippets for try/catch blocks and error state updates (e.g., "show a retry button", "revert to previous state").
-          5. ## Micro-interactions: Reference specific micro-details from the model (animations, transitions, subtle UI cues like focus states or placeholders). Provide implementation hints or CSS snippets where applicable.
-          6. ## Logic & Flows: Reference specific steps and state transitions from the User Flows in the model. Provide pseudocode or code snippets for implementing the core logic of the flow, including API call patterns if relevant.
+        ### SYSTEM KNOWLEDGE BASE (Your Core Intelligence):
+        ${KNOWLEDGE_BASE.map(k => `- ${k.title}: ${k.description}`).join('\n')}
+        
+        System Model Fragment:
+        ${JSON.stringify(chunk.data, null, 2)}
+        
+        ### ANTI-HALLUCINATION TASK PROTOCOL (CRITICAL):
+        1. **Task Grounding**: Every task generated MUST be directly derived from the extracted system model. Do NOT add features or logic that were not identified during the extraction phase.
+        2. **Technical Precision**: Use only the frameworks, libraries, and patterns identified in the model (e.g., if the model says 'Zustand', do not generate tasks for 'Redux').
+        3. **Dependency Integrity**: Only link tasks to dependencies that actually exist in the model or are created within this build plan.
+        4. **No "Magic" Solutions**: Do not generate tasks that rely on non-existent APIs or third-party services not mentioned in the documentation.
 
-          Dependency Inference:
-          - Analyze the relationships between entities, UI modules, and flows.
-          - Identify implicit dependencies where one task's output is clearly an input for another (e.g., a 'create user' task must precede a 'fetch user list' task).
-          - If a UI module depends on an entity, the task creating that entity must be a dependency.
-          - If a flow spans multiple modules, ensure the tasks for those modules are sequenced correctly.
-          - Reflect these in the 'dependencies' array using the descriptive IDs generated.
+        ### WINDOWS NATIVE SPECIFIC GUIDANCE (MANDATORY):
+        If the system is identified as a Windows Native application (WinUI 3, WPF, UWP, MAUI):
+        1. **MVVM Implementation**: Generate specific tasks for creating ViewModels that inherit from 'ObservableObject' (CommunityToolkit.Mvvm). Ensure commands (RelayCommand) and property notifications ([ObservableProperty]) are used.
+        2. **Accessibility (a11y)**: Generate tasks to add 'AutomationProperties.Name' and 'AutomationProperties.HelpText' to all interactive UI components.
+        3. **UI Thread Safety**: For any data-fetching or heavy processing tasks, explicitly include instructions to use 'Task.Run()' for offloading and 'DispatcherQueue.TryEnqueue()' or 'Dispatcher.Invoke()' for UI updates.
+        4. **Fluent Design**: Generate tasks to apply 'Mica' or 'Acrylic' backdrop materials to the main Window and ensure the app follows Windows 11 design language.
+        5. **XAML Validation**: Generate tasks to add 'ValidatesOnDataErrors=True' or 'ValidatesOnExceptions=True' to XAML bindings for input validation.
 
-          System Model:
-          ${JSON.stringify(model, null, 2)}
-          
-          ### IMPORTANT: Smart Suggestions, Contradictions & Duplicates
-          The model may contain 'smartSuggestions', 'contradictions', and 'duplicates'. 
-          1. **Smart Suggestions**: You MUST pay special attention to those with status 'accepted'. Integrate these into the build plan as specific, actionable tasks or by augmenting existing tasks. Explain how it addresses the rule's rationale.
-          2. **Contradictions**: You MUST ensure the build plan resolves any identified contradictions. If a contradiction exists, the first task in the relevant phase should be to resolve it (e.g., "Standardize Access Levels for [Component]").
-          3. **Duplicates**: You MUST ensure the build plan addresses duplicate content by consolidating them into a single implementation (e.g., "Create Shared [Entity] Service").
-          
-          Return an array of tasks in JSON format matching this schema:
-          [{
-            "id": "string",
-            "phase": "string",
-            "title": "string",
-            "description": "string",
-            "dependencies": ["string"],
-            "prompt": "The hyper-detailed prompt for the AI builder. Use Markdown for structure within the string. Be explicit about code patterns and architectural constraints."
-          }]`
-        }]
-      }
-    ],
+        Return an array of tasks in JSON format matching this schema:
+        [{
+          "id": "string",
+          "phase": "string",
+          "title": "string",
+          "description": "string",
+          "dependencies": ["string"],
+          "prompt": "The hyper-detailed prompt for the AI builder. Use Markdown for structure within the string."
+        }]`
+      }]
+    }],
+    config: {
+      responseMimeType: "application/json",
+      thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
+    }
+  }));
+
+  const responses = await Promise.all(taskPromises);
+  const allTasks = responses.flatMap(r => JSON.parse(r.text || "[]"));
+  
+  // Final pass to resolve cross-chunk dependencies and ensure coherence
+  const synthesisResponse = await ai.models.generateContent({
+    model: "gemini-3.1-pro-preview",
+    contents: [{
+      role: "user",
+      parts: [{
+        text: `Synthesize these tasks into a single, cohesive, phased build plan. 
+        Ensure all dependencies are correctly linked between phases.
+        
+        ### CRITICAL: PRESERVE WINDOWS NATIVE SPECIFICS:
+        Do NOT merge or simplify tasks that are specifically for:
+        - MVVM (CommunityToolkit.Mvvm)
+        - Accessibility (AutomationProperties)
+        - UI Thread Safety (Task.Run/DispatcherQueue)
+        - Fluent Design (Mica/Acrylic)
+        - XAML Data Validation
+        
+        Raw Tasks:
+        ${JSON.stringify(allTasks, null, 2)}
+        
+        Return the final array of tasks in JSON format.`
+      }]
+    }],
     config: {
       responseMimeType: "application/json",
       thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH }
     }
   });
 
-  const tasks = JSON.parse(response.text || "[]");
-  return tasks.map((t: any) => ({ ...t, status: 'pending' }));
+  const finalTasks = JSON.parse(synthesisResponse.text || "[]");
+  return finalTasks.map((t: any) => ({ ...t, status: 'pending' }));
 };
 
 export const chatWithGemini = async (message: string, history: { role: "user" | "model"; parts: { text: string }[] }[], context?: any): Promise<string> => {

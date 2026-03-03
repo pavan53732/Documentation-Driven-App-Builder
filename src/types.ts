@@ -25,6 +25,20 @@ export interface AutoFixAction {
   riskLevel: 'safe' | 'moderate' | 'risky';
 }
 
+export interface AuditIssue {
+  type: 'hallucination' | 'omission' | 'inconsistency';
+  element: string;
+  description: string;
+  severity: 'high' | 'medium' | 'low';
+  suggestedFix: string;
+}
+
+export interface AuditReport {
+  overallConfidence: number;
+  issues: AuditIssue[];
+  summary: string;
+}
+
 export interface SystemModel {
   entities: Entity[];
   stateDefinitions: StateDefinition[];
@@ -43,6 +57,7 @@ export interface SystemModel {
   detectedFrameworks?: DetectedFramework[];
   compatibilityIssues?: CompatibilityIssue[];
   files?: { name: string; content: string }[];
+  auditReport?: AuditReport;
 }
 
 export interface Provenance {

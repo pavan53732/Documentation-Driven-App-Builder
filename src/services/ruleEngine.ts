@@ -94,48 +94,61 @@ export const RULES: Rule[] = [
   {
     id: "rule-win-fluent-design",
     category: "ui/ux",
-    description: "Windows apps should use Fluent Design materials (Mica/Acrylic).",
-    trigger: { type: "global" },
-    condition: (model) => {
+    description: "Windows apps should use Fluent Design materials (Mica/Acrylic) for window backgrounds.",
+    trigger: { type: "component", selector: ".*(Window|Page).*" },
+    condition: (model, component: UIComponent) => {
       const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
       if (!isWindowsApp) return false;
       
-      const hasFluent = model.microDetails?.some(d => 
+      const hasFluentDetail = model.microDetails?.some(d => 
         d.description.toLowerCase().includes("mica") || 
-        d.description.toLowerCase().includes("acrylic") ||
-        d.description.toLowerCase().includes("fluent")
+        d.description.toLowerCase().includes("acrylic")
       );
-      return !hasFluent;
+
+      const hasFluentAttribute = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("backdrop") || 
+        attr.value.toLowerCase().includes("mica") || 
+        attr.value.toLowerCase().includes("acrylic")
+      );
+
+      return !hasFluentDetail && !hasFluentAttribute;
     },
     suggestion: {
-      action: "Apply Fluent Design Materials",
-      description: "Inject Mica or Acrylic backdrop materials into the main Window XAML to match Windows 11 design language.",
+      action: "Apply Mica or Acrylic Backdrop",
+      description: "Inject Mica or Acrylic backdrop materials into the Window XAML to match Windows 11 design language and provide a more native look and feel.",
       impact: "high",
-      rationale: "Native Windows apps should feel integrated with the OS by using standard Fluent Design materials."
+      rationale: "Native Windows apps should feel integrated with the OS by using standard Fluent Design materials like Mica (for app backgrounds) or Acrylic (for transient surfaces)."
     }
   },
   {
     id: "rule-win-ui-thread",
     category: "logic/performance",
     description: "Long-running tasks must not block the UI thread.",
-    trigger: { type: "flow", selector: ".*(Fetch|Sync|Download|Process|Load).*" },
+    trigger: { type: "flow", selector: ".*(Fetch|Sync|Download|Process|Load|API|Submit).*" },
     condition: (model, flow: UserFlow) => {
       const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
       if (!isWindowsApp) return false;
 
-      const hasAsync = flow.steps.some(step => 
-        step.action.toLowerCase().includes("async") || 
+      const hasAsyncOffloading = flow.steps.some(step => 
         step.action.toLowerCase().includes("task.run") ||
-        step.action.toLowerCase().includes("dispatcher") ||
-        step.action.toLowerCase().includes("dispatcherqueue")
+        step.action.toLowerCase().includes("background") ||
+        step.action.toLowerCase().includes("async")
       );
-      return !hasAsync;
+      
+      const hasDispatching = flow.steps.some(step => 
+        step.expectedResult.toLowerCase().includes("dispatcher") ||
+        step.expectedResult.toLowerCase().includes("dispatcherqueue") ||
+        step.expectedResult.toLowerCase().includes("tryenqueue") ||
+        step.expectedResult.toLowerCase().includes("invoke")
+      );
+
+      return !hasAsyncOffloading || !hasDispatching;
     },
     suggestion: {
-      action: "Offload to Background Thread",
-      description: "Wrap heavy data-fetching steps in Task.Run() and ensure UI updates are dispatched back using DispatcherQueue.TryEnqueue() or Dispatcher.Invoke().",
+      action: "Offload to Background Thread & Dispatch UI Updates",
+      description: "Ensure long-running operations are offloaded to a background thread using Task.Run() and that UI updates are dispatched back using DispatcherQueue.TryEnqueue() or Dispatcher.Invoke().",
       impact: "high",
-      rationale: "Blocking the UI thread causes the app to freeze and Windows to mark it as 'Not Responding'."
+      rationale: "Blocking the UI thread causes the app to freeze. Updates to UI elements from background threads must be marshaled back to the UI thread to avoid cross-thread exceptions."
     }
   },
   {
@@ -149,44 +162,50 @@ export const RULES: Rule[] = [
 
       const hasViewModel = component.attributes?.some(attr => 
         attr.name.toLowerCase().includes("viewmodel") || 
-        attr.name.toLowerCase().includes("datacontext")
+        attr.name.toLowerCase().includes("datacontext") ||
+        attr.name.toLowerCase().includes("d:datacontext")
       );
       return !hasViewModel;
     },
     suggestion: {
-      action: "Implement MVVM Pattern",
-      description: "Automatically generate a ViewModel class inheriting from ObservableObject and bind the XAML controls to it.",
+      action: "Implement MVVM Pattern with CommunityToolkit",
+      description: "Generate a ViewModel class inheriting from ObservableObject (CommunityToolkit.Mvvm) and bind the XAML controls to it via DataContext.",
       impact: "high",
-      rationale: "MVVM is the standard architectural pattern for Windows XAML apps, ensuring separation of concerns and testability."
+      rationale: "MVVM is the standard architectural pattern for Windows XAML apps. CommunityToolkit.Mvvm provides a modern, high-performance implementation of ObservableObject."
     }
   },
   {
     id: "rule-win-accessibility",
     category: "a11y",
-    description: "Controls must be accessible to Narrator.",
-    trigger: { type: "component", selector: ".*(Button|Input|TextBox|Image).*" },
+    description: "Controls must be accessible to Narrator with Name and HelpText.",
+    trigger: { type: "component", selector: ".*(Button|Input|TextBox|Image|ComboBox|CheckBox|RadioButton).*" },
     condition: (model, component: UIComponent) => {
       const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
       if (!isWindowsApp) return false;
 
-      const hasAutomationProps = component.attributes?.some(attr => 
-        attr.name.toLowerCase().includes("automationproperties") ||
-        attr.name.toLowerCase().includes("x:name")
+      const hasName = component.attributes?.some(attr => 
+        attr.name.includes("AutomationProperties.Name") || 
+        attr.name.toLowerCase() === "x:name"
       );
-      return !hasAutomationProps;
+      
+      const hasHelpText = component.attributes?.some(attr => 
+        attr.name.includes("AutomationProperties.HelpText")
+      );
+
+      return !hasName || !hasHelpText;
     },
     suggestion: {
-      action: "Add AutomationProperties",
-      description: "Replace missing web aria-labels with XAML AutomationProperties.Name and AutomationProperties.HelpText.",
+      action: "Add AutomationProperties.Name and HelpText",
+      description: "Ensure UI components have AutomationProperties.Name and AutomationProperties.HelpText set to provide a clear description and usage guidance for screen readers like Narrator.",
       impact: "high",
-      rationale: "Windows Narrator relies on AutomationProperties to read UI elements to visually impaired users."
+      rationale: "Windows Narrator relies on AutomationProperties.Name to identify the control and HelpText to explain its purpose or how to interact with it, which is critical for accessibility compliance."
     }
   },
   {
     id: "rule-win-xaml-binding",
     category: "architecture",
     description: "XAML Data Binding Validation",
-    trigger: { type: "component", selector: ".*(Page|Window|View|Control|TextBox|ComboBox).*" },
+    trigger: { type: "component", selector: ".*(Page|Window|View|Control|TextBox|ComboBox|Input).*" },
     condition: (model, component: UIComponent) => {
       const isWindowsApp = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
       if (!isWindowsApp) return false;
@@ -197,18 +216,18 @@ export const RULES: Rule[] = [
       );
       
       const hasValidation = component.attributes?.some(attr => 
-        attr.value.includes("ValidatesOnDataErrors") || 
-        attr.value.includes("ValidatesOnExceptions") ||
-        attr.name.includes("Validation")
+        attr.name.includes("ValidatesOnDataErrors") || 
+        attr.name.includes("ValidatesOnExceptions") ||
+        attr.name.includes("NotifyOnValidationError")
       );
       
       return !!hasBinding && !hasValidation;
     },
     suggestion: {
-      action: "Add XAML Binding Validation",
-      description: "Ensure correct x:Bind or Binding usage and add ValidatesOnDataErrors=True or ValidatesOnExceptions=True to Binding definitions.",
+      action: "Add XAML Binding Validation & IDataErrorInfo",
+      description: "Add ValidatesOnDataErrors=True or ValidatesOnExceptions=True to Binding definitions. Ensure the associated ViewModel implements IDataErrorInfo or provides validation context.",
       impact: "medium",
-      rationale: "Proper validation on XAML bindings ensures that UI inputs are correctly validated before updating the ViewModel."
+      rationale: "Proper validation on XAML bindings ensures that UI inputs are correctly validated before updating the ViewModel. IDataErrorInfo allows the UI to display validation errors automatically."
     }
   },
   {
@@ -543,7 +562,127 @@ export const RULES: Rule[] = [
     }
   },
 
-  // --- DESKTOP / OBSERVABILITY ---
+  // --- THE HACKER LENS (SECURITY & TRUST) ---
+  {
+    id: "rule-security-owasp-xss",
+    category: "security/hacker",
+    description: "Audit for potential XSS vulnerabilities in user-generated content.",
+    trigger: { type: "component", selector: ".*(Comment|Post|Profile|Input|Description).*" },
+    condition: (model, component: UIComponent) => {
+      const hasSanitization = component.attributes?.some(attr => 
+        attr.name.toLowerCase().includes("sanitize") || 
+        attr.name.toLowerCase().includes("escape") ||
+        attr.name.toLowerCase().includes("dangerouslysetinnerhtml")
+      );
+      return !hasSanitization;
+    },
+    suggestion: {
+      action: "Implement Input Sanitization",
+      description: "Ensure all user-generated content is sanitized or escaped before rendering to prevent XSS attacks.",
+      impact: "high",
+      rationale: "XSS is one of the most common web vulnerabilities; sanitization is a non-negotiable defense."
+    }
+  },
+  {
+    id: "rule-security-auth-mfa",
+    category: "security/hacker",
+    description: "High-privilege accounts should require Multi-Factor Authentication (MFA).",
+    trigger: { type: "flow", selector: ".*(Admin|Login|Security|Payment).*" },
+    condition: (model, flow: UserFlow) => {
+      const hasMfa = flow.steps.some(s => s.action.toLowerCase().includes("mfa") || s.action.toLowerCase().includes("2fa") || s.action.toLowerCase().includes("otp"));
+      return !hasMfa;
+    },
+    suggestion: {
+      action: "Enforce MFA for Admin Flows",
+      description: "Require a second factor of authentication for sensitive operations or administrative access.",
+      impact: "high",
+      rationale: "MFA significantly reduces the risk of account takeover even if passwords are compromised."
+    }
+  },
+
+  // --- THE SRE LENS (OPERATIONAL EXCELLENCE) ---
+  {
+    id: "rule-sre-rate-limiting",
+    category: "ops/sre",
+    description: "Public API endpoints must have rate limiting defined.",
+    trigger: { type: "flow", selector: ".*(API|Fetch|Submit|Post|Search).*" },
+    condition: (model, flow: UserFlow) => {
+      const hasRateLimit = flow.steps.some(s => s.action.toLowerCase().includes("rate limit") || s.action.toLowerCase().includes("throttle"));
+      return !hasRateLimit;
+    },
+    suggestion: {
+      action: "Define API Rate Limits",
+      description: "Specify the maximum number of requests allowed per user/IP to prevent DDoS and resource exhaustion.",
+      impact: "high",
+      rationale: "Rate limiting is essential for system stability and protecting against automated abuse."
+    }
+  },
+  {
+    id: "rule-sre-health-checks",
+    category: "ops/sre",
+    description: "Services must expose health check endpoints.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const hasHealthCheck = model.microDetails?.some(d => d.description.toLowerCase().includes("health check") || d.description.toLowerCase().includes("liveness") || d.description.toLowerCase().includes("readiness"));
+      return !hasHealthCheck;
+    },
+    suggestion: {
+      action: "Implement Health Check Endpoints",
+      description: "Expose /health, /ready, and /live endpoints for orchestration tools (like Kubernetes) to monitor service status.",
+      impact: "medium",
+      rationale: "Health checks enable automated recovery and zero-downtime deployments."
+    }
+  },
+  {
+    id: "rule-win-uac-manifest",
+    category: "security/windows",
+    description: "Windows apps should explicitly define UAC execution levels.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const isWindows = model.detectedFrameworks?.some(f => ['winui3', 'wpf', 'uwp', 'maui'].includes(f.name));
+      if (!isWindows) return false;
+      const hasManifest = model.microDetails?.some(d => d.description.toLowerCase().includes("requestedexecutionlevel") || d.description.toLowerCase().includes("app.manifest"));
+      return !hasManifest;
+    },
+    suggestion: {
+      action: "Add app.manifest with UAC Level",
+      description: "Generate an app.manifest file specifying 'asInvoker' to ensure the app doesn't trigger unnecessary UAC prompts.",
+      impact: "medium",
+      rationale: "Explicit UAC manifests are required for Windows Store compliance and predictable security behavior."
+    }
+  },
+  {
+    id: "rule-build-determinism",
+    category: "build/governance",
+    description: "Ensure build output is deterministic.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const hasDeterminism = model.microDetails?.some(d => d.description.toLowerCase().includes("deterministic") || d.description.toLowerCase().includes("reproducible"));
+      return !hasDeterminism;
+    },
+    suggestion: {
+      action: "Enable Deterministic Builds",
+      description: "Set <Deterministic>true</Deterministic> in project files and ensure all dependencies are version-locked.",
+      impact: "medium",
+      rationale: "Deterministic builds ensure that the same source code always produces the exact same binary, which is critical for security audits."
+    }
+  },
+  {
+    id: "rule-security-code-signing",
+    category: "security/trust",
+    description: "Production builds must be code-signed.",
+    trigger: { type: "global" },
+    condition: (model) => {
+      const hasSigning = model.microDetails?.some(d => d.description.toLowerCase().includes("code sign") || d.description.toLowerCase().includes("signtool"));
+      return !hasSigning;
+    },
+    suggestion: {
+      action: "Configure SignTool in Pipeline",
+      description: "Add a step to the build pipeline to sign the output using a valid certificate via SignTool.exe.",
+      impact: "high",
+      rationale: "Unsigned binaries are blocked by SmartScreen and many enterprise security policies."
+    }
+  },
   {
     id: "rule-obs-structured-logging",
     category: "desktop/obs",
@@ -1381,6 +1520,67 @@ export const RULES: Rule[] = [
   },
 
   // --- FRAMEWORK OPTIMIZATIONS ---
+  {
+    id: "rule-nextjs-server-components",
+    category: "logic/performance",
+    description: "Use React Server Components (RSC) for data fetching in Next.js.",
+    trigger: { type: "component", selector: ".*(Page|Layout).*" },
+    condition: (model, component: UIComponent) => {
+      const isNext = model.detectedFrameworks?.some(f => f.name === 'nextjs');
+      if (!isNext) return false;
+
+      const hasServerAction = component.attributes?.some(attr => attr.name.toLowerCase().includes("server"));
+      const hasClientDirective = component.attributes?.some(attr => attr.value.includes("'use client'"));
+      
+      return !hasServerAction && !!hasClientDirective;
+    },
+    suggestion: {
+      action: "Convert to Server Component",
+      description: "Move data fetching to a Server Component to reduce client-side bundle size and improve performance.",
+      impact: "high",
+      rationale: "Next.js Server Components allow you to fetch data on the server, keeping your client-side JavaScript minimal."
+    }
+  },
+  {
+    id: "rule-astro-islands",
+    category: "logic/performance",
+    description: "Use Astro Islands for interactive components.",
+    trigger: { type: "component", selector: ".*" },
+    condition: (model, component: UIComponent) => {
+      const isAstro = model.detectedFrameworks?.some(f => f.name === 'astro');
+      if (!isAstro) return false;
+
+      const isInteractive = component.name.toLowerCase().includes("form") || component.name.toLowerCase().includes("button") || component.name.toLowerCase().includes("modal");
+      const hasClientDirective = component.attributes?.some(attr => attr.name.startsWith("client:"));
+      
+      return isInteractive && !hasClientDirective;
+    },
+    suggestion: {
+      action: "Add Client Directive",
+      description: "Add a 'client:load' or 'client:visible' directive to this interactive component.",
+      impact: "high",
+      rationale: "Astro components are zero-JS by default. Interactive components need a client directive to hydrate on the client."
+    }
+  },
+  {
+    id: "rule-tanstack-query-caching",
+    category: "logic/performance",
+    description: "Use TanStack Query for efficient data fetching and caching.",
+    trigger: { type: "flow", selector: ".*(Fetch|Load|Get).*" },
+    condition: (model, flow: UserFlow) => {
+      const hasQuery = model.detectedFrameworks?.some(f => f.name === 'react-query' || f.name === 'tanstack-query');
+      if (!hasQuery) return false;
+
+      const usesQueryHook = flow.steps.some(step => step.action.toLowerCase().includes("usequery") || step.action.toLowerCase().includes("usemutation"));
+      return !usesQueryHook;
+    },
+    suggestion: {
+      action: "Implement TanStack Query",
+      description: "Refactor this data fetching flow to use useQuery or useMutation for automatic caching and state management.",
+      impact: "medium",
+      rationale: "TanStack Query handles caching, background updates, and stale data out of the box, significantly reducing boilerplate."
+    }
+  },
   {
     id: "rule-react-memo",
     category: "logic/performance",

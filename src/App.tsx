@@ -347,15 +347,41 @@ export default function App() {
         ? await quickAnalyze(docs, onChunk, customRules)
         : await analyzeDocumentation(docs, onChunk, customRules);
       
-      // Parallelize task decomposition and local structural checks
-      const [newTasks, structuralContradictions, structuralDuplicates] = await Promise.all([
+      const combinedDocs = docs.map(d => `File: ${d.name}\n\n${d.content}`).join("\n\n---\n\n");
+
+      // Use Web Worker for heavy CPU-bound tasks
+      const worker = new Worker(new URL('./workers/analysisWorker.ts', import.meta.url), { type: 'module' });
+      
+      const processedModelPromise = new Promise<any>((resolve, reject) => {
+        worker.onmessage = (e) => {
+          if (e.data.type === 'MODEL_PROCESSED') {
+            resolve(e.data.payload);
+            worker.terminate();
+          } else if (e.data.type === 'ERROR') {
+            reject(new Error(e.data.error));
+            worker.terminate();
+          }
+        };
+        worker.postMessage({
+          type: 'PROCESS_MODEL',
+          model: newModel,
+          combinedDocs,
+          customRules
+        });
+      });
+
+      // Parallelize task decomposition and worker-based structural/rule checks
+      const [newTasks, workerResults] = await Promise.all([
         decomposeTasks(newModel),
-        Promise.resolve(detectContradictions(newModel)),
-        Promise.resolve(detectDuplicates(newModel))
+        processedModelPromise
       ]);
       
-      newModel.contradictions = [...(newModel.contradictions || []), ...structuralContradictions];
-      newModel.duplicates = [...(newModel.duplicates || []), ...structuralDuplicates];
+      // Merge results from worker
+      newModel.detectedFrameworks = workerResults.detectedFrameworks;
+      newModel.compatibilityIssues = workerResults.compatibilityIssues;
+      newModel.smartSuggestions = workerResults.smartSuggestions;
+      newModel.contradictions = [...(newModel.contradictions || []), ...workerResults.contradictions];
+      newModel.duplicates = [...(newModel.duplicates || []), ...workerResults.duplicates];
       
       setModel(newModel);
       setTasks(newTasks);
@@ -754,6 +780,80 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Audit Report Section */}
+              {model.auditReport && (
+                <div className={`border border-[#141414] rounded-sm p-8 shadow-[8px_8px_0px_0px_rgba(20,20,20,1)] mb-12 ${theme === 'dark' ? 'bg-[#1A1A1A]' : 'bg-white'}`}>
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-12 h-12 flex items-center justify-center rounded-sm ${
+                        model.auditReport.overallConfidence > 80 ? 'bg-emerald-500/20 text-emerald-500' :
+                        model.auditReport.overallConfidence > 50 ? 'bg-amber-500/20 text-amber-500' :
+                        'bg-red-500/20 text-red-500'
+                      }`}>
+                        <Shield size={28} />
+                      </div>
+                      <div>
+                        <h3 className="font-bold uppercase text-lg tracking-widest">Architectural Audit Report</h3>
+                        <p className="text-[10px] opacity-50 uppercase tracking-widest mt-1">Self-Correction Pass & Hallucination Check</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] font-bold uppercase opacity-40 mb-1">Confidence Score</div>
+                      <div className={`text-4xl font-serif italic ${
+                        model.auditReport.overallConfidence > 80 ? 'text-emerald-500' :
+                        model.auditReport.overallConfidence > 50 ? 'text-amber-500' :
+                        'text-red-500'
+                      }`}>
+                        {model.auditReport.overallConfidence}%
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`p-6 rounded-sm mb-8 border-l-4 ${
+                    theme === 'dark' ? 'bg-black/40 border-white/20' : 'bg-black/5 border-[#141414]'
+                  }`}>
+                    <p className="text-sm italic leading-relaxed opacity-80">"{model.auditReport.summary}"</p>
+                  </div>
+
+                  {model.auditReport.issues.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] font-bold uppercase tracking-widest opacity-40 mb-4">Identified Audit Issues</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {model.auditReport.issues.map((issue, idx) => (
+                          <div key={idx} className={`p-4 rounded-sm border ${
+                            issue.severity === 'high' ? (theme === 'dark' ? 'border-red-500/30 bg-red-500/5' : 'border-red-200 bg-red-50') :
+                            issue.severity === 'medium' ? (theme === 'dark' ? 'border-amber-500/30 bg-amber-500/5' : 'border-amber-200 bg-amber-50') :
+                            (theme === 'dark' ? 'border-white/10 bg-white/5' : 'border-black/5 bg-black/5')
+                          }`}>
+                            <div className="flex justify-between items-start mb-2">
+                              <span className={`text-[8px] px-1.5 py-0.5 rounded-sm font-bold uppercase ${
+                                issue.type === 'hallucination' ? 'bg-purple-500/20 text-purple-500' :
+                                issue.type === 'omission' ? 'bg-blue-500/20 text-blue-500' :
+                                'bg-amber-500/20 text-amber-500'
+                              }`}>
+                                {issue.type}
+                              </span>
+                              <span className={`text-[8px] font-bold uppercase ${
+                                issue.severity === 'high' ? 'text-red-500' : 
+                                issue.severity === 'medium' ? 'text-amber-500' : 
+                                'text-slate-500'
+                              }`}>
+                                {issue.severity} severity
+                              </span>
+                            </div>
+                            <h5 className="text-xs font-bold mb-1">{issue.element}</h5>
+                            <p className="text-[10px] opacity-70 mb-3">{issue.description}</p>
+                            <div className={`p-2 rounded-sm text-[9px] font-mono ${theme === 'dark' ? 'bg-black/40 text-emerald-400' : 'bg-white text-emerald-700'}`}>
+                              <span className="opacity-50 mr-1">FIX:</span> {issue.suggestedFix}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

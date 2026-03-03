@@ -141,6 +141,20 @@ export const DetectedFrameworkSchema = z.object({
   evidence: z.array(z.string()),
 });
 
+export const AuditIssueSchema = z.object({
+  type: z.enum(['hallucination', 'omission', 'inconsistency']),
+  element: z.string(),
+  description: z.string(),
+  severity: z.enum(['high', 'medium', 'low']),
+  suggestedFix: z.string(),
+});
+
+export const AuditReportSchema = z.object({
+  overallConfidence: z.number(),
+  issues: z.array(AuditIssueSchema).default([]),
+  summary: z.string(),
+});
+
 export const CompatibilityIssueSchema = z.object({
   type: z.enum(['conflict', 'missing-requirement']),
   frameworks: z.array(z.string()),
@@ -166,6 +180,7 @@ export const SystemModelSchema = z.object({
   detectedFrameworks: z.array(DetectedFrameworkSchema).optional(),
   compatibilityIssues: z.array(CompatibilityIssueSchema).optional(),
   files: z.array(z.object({ name: z.string(), content: z.string() })).optional(),
+  auditReport: AuditReportSchema.optional(),
 });
 
 export const BuildTaskSchema = z.object({
